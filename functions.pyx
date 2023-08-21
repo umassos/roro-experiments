@@ -1,6 +1,8 @@
 import random
 import math
 from scipy.optimize import linprog
+from scipy.optimize import minimize
+from scipy.special import lambertw
 import numpy as np
 import pandas as pd
 import pickle
@@ -88,15 +90,14 @@ import pickle
 # length of job             -- k
 # switching cost            -- beta
 cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float beta):
-    cdef int accepted, lastElem, i
+    cdef int lastElem, i
     cdef bint accept, prevAccepted
-    cdef list sol, runningList
-    cdef float cost, threshold, val
+    cdef list sol
+    cdef float cost, threshold, val, accepted
 
     prevAccepted = False
     sol = []
     accepted = 0
-    runningList = []
     lastElem = len(vals)
     cost = 0
     L = 35
@@ -106,34 +107,38 @@ cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float 
 
     #simulate behavior of online algorithm using a for loop
     for (i, val) in enumerate(vals):
+        if accepted >= k:
+            sol.append(0)
+            continue
+        
         if accepted + (len(vals)-i) == k: # must accept all remaining elements
             lastElem = i
             break
+        
         accept = (val <= threshold)
         if prevAccepted != accept:
-            if len(runningList) > 1:
-                sol.append(runningList)
-            runningList = []
-            cost += beta
+            cost += beta * (1/k)
         if accept:
-            runningList.append(val)
+            sol.append(1/k)
             accepted += 1
-            cost += val
+            cost += val * (1/k)
             if accepted == k:
-                sol.append(runningList)
-                cost += beta # one last switching cost to turn off
-                break
+                cost += beta * (1/k) # one last switching cost to turn off
+                continue
+        else:
+            sol.append(0)
         prevAccepted = accept
 
     if accepted < k:
         if prevAccepted != True:
-            cost += 2*beta
+            cost += 2*beta * (1/k)
         for i in range(lastElem, len(vals)):
-            runningList.append(vals[i])
-            cost += vals[i]
-        sol.append(runningList)
+            sol.append(1/k)
+            cost += vals[i] * (1/k)
 
     return sol, cost
+
+    
 
 
 cdef float cosine(float x):
@@ -155,10 +160,9 @@ cpdef list generateSyntheticSequence(float start, float end, float interval):
     return sequence
 
 
-cpdef tuple[list, float] optimalSol(list vals, float beta):
+cpdef tuple[list, float] optimalSolution(list vals, float beta):
     cdef int n, dim, i
     cdef list c, A, b, row, all_bounds
-    cdef float val
 
     n = len(vals)
     dim = 2*n + 1
@@ -184,15 +188,15 @@ cpdef tuple[list, float] optimalSol(list vals, float beta):
 
     # append subsequent rows (switching cost constraint)
     row = [0 for i in range(0, dim)]
-    row[i] = 1
-    row[i+n] = -1
+    row[0] = 1
+    row[n] = -1
     A.append(row)
     b.append(0)
     for i in range(0, n):
         row = [0 for i in range(0, dim)]
         row[i] = -1
         row[i+1] = 1
-        row[i+n] = -1
+        row[i+n+1] = -1
         A.append(row.copy())
         b.append(0)
 
@@ -205,9 +209,6 @@ cpdef tuple[list, float] optimalSol(list vals, float beta):
     row[-1] = -1
     A.append(row)
     b.append(0)
-
-    print(A)
-    print(b)
 
     results = linprog(c=c, A_ub=A, b_ub=b, bounds=all_bounds, method='highs-ds')
 
@@ -222,3 +223,139 @@ cpdef tuple[list, float] optimalSol(list vals, float beta):
     else:
         print("Error: no optimal solution found.")
         return [], math.inf
+
+
+# standard one-way trading algorithm implementation
+
+# list of costs (values)    -- vals
+# length of job             -- k
+# switching cost            -- beta
+cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):
+    cdef int i
+    cdef list sol
+    cdef float cost, val, alpha, accepted
+
+    sol = []
+    accepted = 0
+    cost = 0
+    L = 0.000001
+    U = 30
+
+    # get value for alpha
+    alpha = 1 / (1 + lambertw( ( (L/U) - 1 ) / math.e ) )
+
+    #simulate behavior of online algorithm using a for loop
+    for (i, val) in enumerate(vals):
+        if accepted >= 1:
+            sol.append(0)
+            continue
+        
+        if i == len(vals) - 1: # must accept last price
+            remainder = 1.0 - accepted
+            cost += val * remainder # hitting cost
+            cost += (beta * abs(remainder - sol[-1]))
+            sol.append(remainder)
+            accepted += remainder
+            break
+        
+        # solve for threshold-defined amount
+        amount = owtHelper(val, accepted, alpha, L, U, beta)
+        accepted += amount
+        cost += val * amount
+        if i == 0:
+            cost += (beta * abs(amount - 0))
+        else:
+            cost += (beta * abs(amount - sol[-1]))
+        sol.append(amount)
+        if accepted >= 1:
+            cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+            continue
+
+    return sol, cost
+
+# helper for one-way trading algorithm
+cpdef float owtHelper(float val, float accepted, float alpha, float U, float L, float beta):
+    cdef float threshold, target
+
+    threshold = getThreshold(val, alpha, U, L, 0, accepted)
+
+    if threshold >= 0:
+        try:
+            target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+        # solve for the amount
+        except:
+            print("something went wrong here w_j={}".format(accepted))
+        else:
+            return (target - accepted)
+    else:
+        return 0
+
+# note that when beta = 0, this is exactly the same as the OWT threshold
+cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):
+    return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val
+
+
+# RORO algorithm implementation
+
+# list of costs (values)    -- vals
+# length of job             -- k
+# switching cost            -- beta
+cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):
+    cdef int i
+    cdef list sol
+    cdef float cost, val, alpha, accepted
+
+    sol = []
+    accepted = 0
+    cost = 0
+    L = 0.0001
+    U = 30
+
+    # get value for alpha
+    alpha = 1 / (1 + lambertw( ( (L/U) - 1 ) / math.e ) )
+
+    #simulate behavior of online algorithm using a for loop
+    for (i, val) in enumerate(vals):
+        if accepted >= 1:
+            sol.append(0)
+            continue
+        
+        if i == len(vals) - 1: # must accept last price
+            remainder = 1.0 - accepted
+            cost += val * remainder # hitting cost
+            cost += (beta * abs(remainder - sol[-1]))
+            sol.append(remainder)
+            accepted += remainder
+            break
+        
+        # solve for threshold-defined amount
+        amount = roroHelper(val, accepted, alpha, L, U, beta)
+        accepted += amount
+        cost += val * amount
+        if i == 0:
+            cost += (beta * abs(amount - 0))
+        else:
+            cost += (beta * abs(amount - sol[-1]))
+        sol.append(amount)
+        if accepted >= 1:
+            cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+            continue
+
+    return sol, cost
+
+# helper for RORO algorithm
+cpdef float roroHelper(float val, float accepted, float alpha, float U, float L, float beta):
+    cdef float threshold, target
+
+    threshold = getThreshold(val, alpha, U, L, beta, accepted)
+
+    if threshold >= 0:
+        try:
+            target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+        # solve for the amount
+        except:
+            print("something went wrong here w_j={}".format(accepted))
+        else:
+            return (target - accepted)
+    else:
+        return 0

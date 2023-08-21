@@ -1718,8 +1718,32 @@ static PyObject* __Pyx_PyInt_MultiplyCObj(PyObject *op1, PyObject *op2, long int
     (inplace ? PyNumber_InPlaceMultiply(op1, op2) : PyNumber_Multiply(op1, op2))
 #endif
 
-/* RaiseUnexpectedTypeError.proto */
-static int __Pyx_RaiseUnexpectedTypeError(const char *expected, PyObject *obj);
+/* ListCompAppend.proto */
+#if CYTHON_USE_PYLIST_INTERNALS && CYTHON_ASSUME_SAFE_MACROS
+static CYTHON_INLINE int __Pyx_ListComp_Append(PyObject* list, PyObject* x) {
+    PyListObject* L = (PyListObject*) list;
+    Py_ssize_t len = Py_SIZE(list);
+    if (likely(L->allocated > len)) {
+        Py_INCREF(x);
+        PyList_SET_ITEM(list, len, x);
+        __Pyx_SET_SIZE(list, len + 1);
+        return 0;
+    }
+    return PyList_Append(list, x);
+}
+#else
+#define __Pyx_ListComp_Append(L,x) PyList_Append(L,x)
+#endif
+
+/* SetItemInt.proto */
+#define __Pyx_SetItemInt(o, i, v, type, is_signed, to_py_func, is_list, wraparound, boundscheck)\
+    (__Pyx_fits_Py_ssize_t(i, type, is_signed) ?\
+    __Pyx_SetItemInt_Fast(o, (Py_ssize_t)i, v, is_list, wraparound, boundscheck) :\
+    (is_list ? (PyErr_SetString(PyExc_IndexError, "list assignment index out of range"), -1) :\
+               __Pyx_SetItemInt_Generic(o, to_py_func(i), v)))
+static int __Pyx_SetItemInt_Generic(PyObject *o, PyObject *j, PyObject *v);
+static CYTHON_INLINE int __Pyx_SetItemInt_Fast(PyObject *o, Py_ssize_t i, PyObject *v,
+                                               int is_list, int wraparound, int boundscheck);
 
 /* UnpackUnboundCMethod.proto */
 typedef struct {
@@ -1750,38 +1774,54 @@ static PyObject* __Pyx__CallUnboundCMethod0(__Pyx_CachedCFunction* cfunc, PyObje
 #define __Pyx_CallUnboundCMethod0(cfunc, self)  __Pyx__CallUnboundCMethod0(cfunc, self)
 #endif
 
-/* ListCompAppend.proto */
-#if CYTHON_USE_PYLIST_INTERNALS && CYTHON_ASSUME_SAFE_MACROS
-static CYTHON_INLINE int __Pyx_ListComp_Append(PyObject* list, PyObject* x) {
-    PyListObject* L = (PyListObject*) list;
-    Py_ssize_t len = Py_SIZE(list);
-    if (likely(L->allocated > len)) {
-        Py_INCREF(x);
-        PyList_SET_ITEM(list, len, x);
-        __Pyx_SET_SIZE(list, len + 1);
-        return 0;
-    }
-    return PyList_Append(list, x);
-}
+/* PyIntCompare.proto */
+static CYTHON_INLINE int __Pyx_PyInt_BoolEqObjC(PyObject *op1, PyObject *op2, long intval, long inplace);
+
+/* PyIntBinop.proto */
+#if !CYTHON_COMPILING_IN_PYPY
+static PyObject* __Pyx_PyInt_AddCObj(PyObject *op1, PyObject *op2, long intval, int inplace, int zerodivision_check);
 #else
-#define __Pyx_ListComp_Append(L,x) PyList_Append(L,x)
+#define __Pyx_PyInt_AddCObj(op1, op2, intval, inplace, zerodivision_check)\
+    (inplace ? PyNumber_InPlaceAdd(op1, op2) : PyNumber_Add(op1, op2))
 #endif
 
-/* SetItemInt.proto */
-#define __Pyx_SetItemInt(o, i, v, type, is_signed, to_py_func, is_list, wraparound, boundscheck)\
-    (__Pyx_fits_Py_ssize_t(i, type, is_signed) ?\
-    __Pyx_SetItemInt_Fast(o, (Py_ssize_t)i, v, is_list, wraparound, boundscheck) :\
-    (is_list ? (PyErr_SetString(PyExc_IndexError, "list assignment index out of range"), -1) :\
-               __Pyx_SetItemInt_Generic(o, to_py_func(i), v)))
-static int __Pyx_SetItemInt_Generic(PyObject *o, PyObject *j, PyObject *v);
-static CYTHON_INLINE int __Pyx_SetItemInt_Fast(PyObject *o, Py_ssize_t i, PyObject *v,
-                                               int is_list, int wraparound, int boundscheck);
+/* py_abs.proto */
+#if CYTHON_USE_PYLONG_INTERNALS
+static PyObject *__Pyx_PyLong_AbsNeg(PyObject *num);
+#define __Pyx_PyNumber_Absolute(x)\
+    ((likely(PyLong_CheckExact(x))) ?\
+         (likely(__Pyx_PyLong_IsNonNeg(x)) ? (Py_INCREF(x), (x)) : __Pyx_PyLong_AbsNeg(x)) :\
+         PyNumber_Absolute(x))
+#else
+#define __Pyx_PyNumber_Absolute(x)  PyNumber_Absolute(x)
+#endif
+
+/* GetTopmostException.proto */
+#if CYTHON_USE_EXC_INFO_STACK && CYTHON_FAST_THREAD_STATE
+static _PyErr_StackItem * __Pyx_PyErr_GetTopmostException(PyThreadState *tstate);
+#endif
+
+/* SaveResetException.proto */
+#if CYTHON_FAST_THREAD_STATE
+#define __Pyx_ExceptionSave(type, value, tb)  __Pyx__ExceptionSave(__pyx_tstate, type, value, tb)
+static CYTHON_INLINE void __Pyx__ExceptionSave(PyThreadState *tstate, PyObject **type, PyObject **value, PyObject **tb);
+#define __Pyx_ExceptionReset(type, value, tb)  __Pyx__ExceptionReset(__pyx_tstate, type, value, tb)
+static CYTHON_INLINE void __Pyx__ExceptionReset(PyThreadState *tstate, PyObject *type, PyObject *value, PyObject *tb);
+#else
+#define __Pyx_ExceptionSave(type, value, tb)   PyErr_GetExcInfo(type, value, tb)
+#define __Pyx_ExceptionReset(type, value, tb)  PyErr_SetExcInfo(type, value, tb)
+#endif
+
+/* GetException.proto */
+#if CYTHON_FAST_THREAD_STATE
+#define __Pyx_GetException(type, value, tb)  __Pyx__GetException(__pyx_tstate, type, value, tb)
+static int __Pyx__GetException(PyThreadState *tstate, PyObject **type, PyObject **value, PyObject **tb);
+#else
+static int __Pyx_GetException(PyObject **type, PyObject **value, PyObject **tb);
+#endif
 
 /* PyObjectCallOneArg.proto */
 static CYTHON_INLINE PyObject* __Pyx_PyObject_CallOneArg(PyObject *func, PyObject *arg);
-
-/* PyIntCompare.proto */
-static CYTHON_INLINE int __Pyx_PyInt_BoolEqObjC(PyObject *op1, PyObject *op2, long intval, long inplace);
 
 /* Import.proto */
 static PyObject *__Pyx_Import(PyObject *name, PyObject *from_list, int level);
@@ -2008,7 +2048,12 @@ static int __Pyx_InitStrings(__Pyx_StringTabEntry *t);
 static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *, int, float, float, float, int __pyx_skip_dispatch); /*proto*/
 static float __pyx_f_9functions_cosine(float); /*proto*/
 static PyObject *__pyx_f_9functions_generateSyntheticSequence(float, float, float, int __pyx_skip_dispatch); /*proto*/
-static PyObject *__pyx_f_9functions_optimalSol(PyObject *, float, int __pyx_skip_dispatch); /*proto*/
+static PyObject *__pyx_f_9functions_optimalSolution(PyObject *, float, int __pyx_skip_dispatch); /*proto*/
+static PyObject *__pyx_f_9functions_owtOnline(PyObject *, float, float, float, int __pyx_skip_dispatch); /*proto*/
+static float __pyx_f_9functions_owtHelper(float, float, float, float, float, float, int __pyx_skip_dispatch); /*proto*/
+static float __pyx_f_9functions_getThreshold(float, float, float, float, float, float, int __pyx_skip_dispatch); /*proto*/
+static PyObject *__pyx_f_9functions_roroOnline(PyObject *, float, float, float, int __pyx_skip_dispatch); /*proto*/
+static float __pyx_f_9functions_roroHelper(float, float, float, float, float, float, int __pyx_skip_dispatch); /*proto*/
 /* #### Code section: typeinfo ### */
 /* #### Code section: before_global_var ### */
 #define __Pyx_MODULE_NAME "functions"
@@ -2024,18 +2069,23 @@ static PyObject *__pyx_builtin_print;
 static const char __pyx_k_L[] = "L";
 static const char __pyx_k_U[] = "U";
 static const char __pyx_k_c[] = "c";
+static const char __pyx_k_e[] = "e";
 static const char __pyx_k_k[] = "k";
+static const char __pyx_k_w[] = "w";
 static const char __pyx_k_x[] = "x";
 static const char __pyx_k__3[] = "*";
 static const char __pyx_k__4[] = ".";
 static const char __pyx_k_np[] = "np";
 static const char __pyx_k_pd[] = "pd";
-static const char __pyx_k__11[] = "?";
+static const char __pyx_k__19[] = "?";
 static const char __pyx_k_cos[] = "cos";
 static const char __pyx_k_end[] = "end";
+static const char __pyx_k_exp[] = "exp";
 static const char __pyx_k_fun[] = "fun";
 static const char __pyx_k_inf[] = "inf";
+static const char __pyx_k_val[] = "val";
 static const char __pyx_k_A_ub[] = "A_ub";
+static const char __pyx_k_args[] = "args";
 static const char __pyx_k_b_ub[] = "b_ub";
 static const char __pyx_k_beta[] = "beta";
 static const char __pyx_k_copy[] = "copy";
@@ -2046,40 +2096,54 @@ static const char __pyx_k_spec[] = "__spec__";
 static const char __pyx_k_sqrt[] = "sqrt";
 static const char __pyx_k_test[] = "__test__";
 static const char __pyx_k_vals[] = "vals";
-static const char __pyx_k_array[] = "array";
+static const char __pyx_k_alpha[] = "alpha";
 static const char __pyx_k_numpy[] = "numpy";
 static const char __pyx_k_print[] = "print";
 static const char __pyx_k_range[] = "range";
 static const char __pyx_k_start[] = "start";
 static const char __pyx_k_bounds[] = "bounds";
+static const char __pyx_k_format[] = "format";
 static const char __pyx_k_import[] = "__import__";
 static const char __pyx_k_method[] = "method";
 static const char __pyx_k_pandas[] = "pandas";
 static const char __pyx_k_pickle[] = "pickle";
 static const char __pyx_k_random[] = "random";
 static const char __pyx_k_status[] = "status";
-static const char __pyx_k_tolist[] = "tolist";
 static const char __pyx_k_linprog[] = "linprog";
+static const char __pyx_k_accepted[] = "accepted";
 static const char __pyx_k_highs_ds[] = "highs-ds";
 static const char __pyx_k_interval[] = "interval";
+static const char __pyx_k_lambertw[] = "lambertw";
+static const char __pyx_k_minimize[] = "minimize";
 static const char __pyx_k_enumerate[] = "enumerate";
 static const char __pyx_k_functions[] = "functions";
-static const char __pyx_k_optimalSol[] = "optimalSol";
+static const char __pyx_k_owtHelper[] = "owtHelper";
+static const char __pyx_k_owtOnline[] = "owtOnline";
+static const char __pyx_k_roroHelper[] = "roroHelper";
+static const char __pyx_k_roroOnline[] = "roroOnline";
+static const char __pyx_k_getThreshold[] = "getThreshold";
 static const char __pyx_k_initializing[] = "_initializing";
 static const char __pyx_k_is_coroutine[] = "_is_coroutine";
 static const char __pyx_k_oneMinOnline[] = "oneMinOnline";
 static const char __pyx_k_functions_pyx[] = "functions.pyx";
+static const char __pyx_k_scipy_special[] = "scipy.special";
 static const char __pyx_k_scipy_optimize[] = "scipy.optimize";
+static const char __pyx_k_optimalSolution[] = "optimalSolution";
 static const char __pyx_k_asyncio_coroutines[] = "asyncio.coroutines";
 static const char __pyx_k_cline_in_traceback[] = "cline_in_traceback";
 static const char __pyx_k_generateSyntheticSequence[] = "generateSyntheticSequence";
+static const char __pyx_k_something_went_wrong_here_w_j[] = "something went wrong here w_j={}";
 static const char __pyx_k_Error_no_optimal_solution_found[] = "Error: no optimal solution found.";
 /* #### Code section: decls ### */
 static PyObject *__pyx_pf_9functions_oneMinOnline(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, int __pyx_v_k, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta); /* proto */
 static PyObject *__pyx_pf_9functions_2generateSyntheticSequence(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_start, float __pyx_v_end, float __pyx_v_interval); /* proto */
-static PyObject *__pyx_pf_9functions_4optimalSol(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_beta); /* proto */
+static PyObject *__pyx_pf_9functions_4optimalSolution(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_beta); /* proto */
+static PyObject *__pyx_pf_9functions_6owtOnline(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta); /* proto */
+static PyObject *__pyx_pf_9functions_8owtHelper(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_val, float __pyx_v_accepted, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta); /* proto */
+static PyObject *__pyx_pf_9functions_10getThreshold(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_val, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta, float __pyx_v_w); /* proto */
+static PyObject *__pyx_pf_9functions_12roroOnline(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta); /* proto */
+static PyObject *__pyx_pf_9functions_14roroHelper(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_val, float __pyx_v_accepted, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta); /* proto */
 static __Pyx_CachedCFunction __pyx_umethod_PyList_Type_copy = {0, 0, 0, 0, 0};
-static __Pyx_CachedCFunction __pyx_umethod_PyList_Type_tolist = {0, 0, 0, 0, 0};
 /* #### Code section: late_includes ### */
 /* #### Code section: module_state ### */
 typedef struct {
@@ -2113,10 +2177,12 @@ typedef struct {
   PyObject *__pyx_kp_u_Error_no_optimal_solution_found;
   PyObject *__pyx_n_s_L;
   PyObject *__pyx_n_s_U;
-  PyObject *__pyx_n_s__11;
+  PyObject *__pyx_n_s__19;
   PyObject *__pyx_n_s__3;
   PyObject *__pyx_kp_u__4;
-  PyObject *__pyx_n_s_array;
+  PyObject *__pyx_n_s_accepted;
+  PyObject *__pyx_n_s_alpha;
+  PyObject *__pyx_n_s_args;
   PyObject *__pyx_n_s_asyncio_coroutines;
   PyObject *__pyx_n_s_b_ub;
   PyObject *__pyx_n_s_beta;
@@ -2125,12 +2191,16 @@ typedef struct {
   PyObject *__pyx_n_s_cline_in_traceback;
   PyObject *__pyx_n_s_copy;
   PyObject *__pyx_n_s_cos;
+  PyObject *__pyx_n_s_e;
   PyObject *__pyx_n_s_end;
   PyObject *__pyx_n_s_enumerate;
+  PyObject *__pyx_n_s_exp;
+  PyObject *__pyx_n_s_format;
   PyObject *__pyx_n_s_fun;
   PyObject *__pyx_n_s_functions;
   PyObject *__pyx_kp_s_functions_pyx;
   PyObject *__pyx_n_s_generateSyntheticSequence;
+  PyObject *__pyx_n_s_getThreshold;
   PyObject *__pyx_kp_u_highs_ds;
   PyObject *__pyx_n_s_import;
   PyObject *__pyx_n_s_inf;
@@ -2138,29 +2208,38 @@ typedef struct {
   PyObject *__pyx_n_s_interval;
   PyObject *__pyx_n_s_is_coroutine;
   PyObject *__pyx_n_s_k;
+  PyObject *__pyx_n_s_lambertw;
   PyObject *__pyx_n_s_linprog;
   PyObject *__pyx_n_s_main;
   PyObject *__pyx_n_s_math;
   PyObject *__pyx_n_s_method;
+  PyObject *__pyx_n_s_minimize;
   PyObject *__pyx_n_s_name;
   PyObject *__pyx_n_s_np;
   PyObject *__pyx_n_s_numpy;
   PyObject *__pyx_n_s_oneMinOnline;
-  PyObject *__pyx_n_s_optimalSol;
+  PyObject *__pyx_n_s_optimalSolution;
+  PyObject *__pyx_n_s_owtHelper;
+  PyObject *__pyx_n_s_owtOnline;
   PyObject *__pyx_n_s_pandas;
   PyObject *__pyx_n_s_pd;
   PyObject *__pyx_n_s_pickle;
   PyObject *__pyx_n_s_print;
   PyObject *__pyx_n_s_random;
   PyObject *__pyx_n_s_range;
+  PyObject *__pyx_n_s_roroHelper;
+  PyObject *__pyx_n_s_roroOnline;
   PyObject *__pyx_n_s_scipy_optimize;
+  PyObject *__pyx_n_s_scipy_special;
+  PyObject *__pyx_kp_u_something_went_wrong_here_w_j;
   PyObject *__pyx_n_s_spec;
   PyObject *__pyx_n_s_sqrt;
   PyObject *__pyx_n_s_start;
   PyObject *__pyx_n_s_status;
   PyObject *__pyx_n_s_test;
-  PyObject *__pyx_n_s_tolist;
+  PyObject *__pyx_n_s_val;
   PyObject *__pyx_n_s_vals;
+  PyObject *__pyx_n_s_w;
   PyObject *__pyx_n_s_x;
   PyObject *__pyx_float_5_1;
   PyObject *__pyx_int_0;
@@ -2172,9 +2251,17 @@ typedef struct {
   PyObject *__pyx_tuple__5;
   PyObject *__pyx_tuple__7;
   PyObject *__pyx_tuple__9;
+  PyObject *__pyx_tuple__11;
+  PyObject *__pyx_tuple__13;
+  PyObject *__pyx_tuple__15;
   PyObject *__pyx_codeobj__6;
   PyObject *__pyx_codeobj__8;
   PyObject *__pyx_codeobj__10;
+  PyObject *__pyx_codeobj__12;
+  PyObject *__pyx_codeobj__14;
+  PyObject *__pyx_codeobj__16;
+  PyObject *__pyx_codeobj__17;
+  PyObject *__pyx_codeobj__18;
 } __pyx_mstate;
 
 #if CYTHON_USE_MODULE_STATE
@@ -2221,10 +2308,12 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_kp_u_Error_no_optimal_solution_found);
   Py_CLEAR(clear_module_state->__pyx_n_s_L);
   Py_CLEAR(clear_module_state->__pyx_n_s_U);
-  Py_CLEAR(clear_module_state->__pyx_n_s__11);
+  Py_CLEAR(clear_module_state->__pyx_n_s__19);
   Py_CLEAR(clear_module_state->__pyx_n_s__3);
   Py_CLEAR(clear_module_state->__pyx_kp_u__4);
-  Py_CLEAR(clear_module_state->__pyx_n_s_array);
+  Py_CLEAR(clear_module_state->__pyx_n_s_accepted);
+  Py_CLEAR(clear_module_state->__pyx_n_s_alpha);
+  Py_CLEAR(clear_module_state->__pyx_n_s_args);
   Py_CLEAR(clear_module_state->__pyx_n_s_asyncio_coroutines);
   Py_CLEAR(clear_module_state->__pyx_n_s_b_ub);
   Py_CLEAR(clear_module_state->__pyx_n_s_beta);
@@ -2233,12 +2322,16 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_n_s_cline_in_traceback);
   Py_CLEAR(clear_module_state->__pyx_n_s_copy);
   Py_CLEAR(clear_module_state->__pyx_n_s_cos);
+  Py_CLEAR(clear_module_state->__pyx_n_s_e);
   Py_CLEAR(clear_module_state->__pyx_n_s_end);
   Py_CLEAR(clear_module_state->__pyx_n_s_enumerate);
+  Py_CLEAR(clear_module_state->__pyx_n_s_exp);
+  Py_CLEAR(clear_module_state->__pyx_n_s_format);
   Py_CLEAR(clear_module_state->__pyx_n_s_fun);
   Py_CLEAR(clear_module_state->__pyx_n_s_functions);
   Py_CLEAR(clear_module_state->__pyx_kp_s_functions_pyx);
   Py_CLEAR(clear_module_state->__pyx_n_s_generateSyntheticSequence);
+  Py_CLEAR(clear_module_state->__pyx_n_s_getThreshold);
   Py_CLEAR(clear_module_state->__pyx_kp_u_highs_ds);
   Py_CLEAR(clear_module_state->__pyx_n_s_import);
   Py_CLEAR(clear_module_state->__pyx_n_s_inf);
@@ -2246,29 +2339,38 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_n_s_interval);
   Py_CLEAR(clear_module_state->__pyx_n_s_is_coroutine);
   Py_CLEAR(clear_module_state->__pyx_n_s_k);
+  Py_CLEAR(clear_module_state->__pyx_n_s_lambertw);
   Py_CLEAR(clear_module_state->__pyx_n_s_linprog);
   Py_CLEAR(clear_module_state->__pyx_n_s_main);
   Py_CLEAR(clear_module_state->__pyx_n_s_math);
   Py_CLEAR(clear_module_state->__pyx_n_s_method);
+  Py_CLEAR(clear_module_state->__pyx_n_s_minimize);
   Py_CLEAR(clear_module_state->__pyx_n_s_name);
   Py_CLEAR(clear_module_state->__pyx_n_s_np);
   Py_CLEAR(clear_module_state->__pyx_n_s_numpy);
   Py_CLEAR(clear_module_state->__pyx_n_s_oneMinOnline);
-  Py_CLEAR(clear_module_state->__pyx_n_s_optimalSol);
+  Py_CLEAR(clear_module_state->__pyx_n_s_optimalSolution);
+  Py_CLEAR(clear_module_state->__pyx_n_s_owtHelper);
+  Py_CLEAR(clear_module_state->__pyx_n_s_owtOnline);
   Py_CLEAR(clear_module_state->__pyx_n_s_pandas);
   Py_CLEAR(clear_module_state->__pyx_n_s_pd);
   Py_CLEAR(clear_module_state->__pyx_n_s_pickle);
   Py_CLEAR(clear_module_state->__pyx_n_s_print);
   Py_CLEAR(clear_module_state->__pyx_n_s_random);
   Py_CLEAR(clear_module_state->__pyx_n_s_range);
+  Py_CLEAR(clear_module_state->__pyx_n_s_roroHelper);
+  Py_CLEAR(clear_module_state->__pyx_n_s_roroOnline);
   Py_CLEAR(clear_module_state->__pyx_n_s_scipy_optimize);
+  Py_CLEAR(clear_module_state->__pyx_n_s_scipy_special);
+  Py_CLEAR(clear_module_state->__pyx_kp_u_something_went_wrong_here_w_j);
   Py_CLEAR(clear_module_state->__pyx_n_s_spec);
   Py_CLEAR(clear_module_state->__pyx_n_s_sqrt);
   Py_CLEAR(clear_module_state->__pyx_n_s_start);
   Py_CLEAR(clear_module_state->__pyx_n_s_status);
   Py_CLEAR(clear_module_state->__pyx_n_s_test);
-  Py_CLEAR(clear_module_state->__pyx_n_s_tolist);
+  Py_CLEAR(clear_module_state->__pyx_n_s_val);
   Py_CLEAR(clear_module_state->__pyx_n_s_vals);
+  Py_CLEAR(clear_module_state->__pyx_n_s_w);
   Py_CLEAR(clear_module_state->__pyx_n_s_x);
   Py_CLEAR(clear_module_state->__pyx_float_5_1);
   Py_CLEAR(clear_module_state->__pyx_int_0);
@@ -2280,9 +2382,17 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_tuple__5);
   Py_CLEAR(clear_module_state->__pyx_tuple__7);
   Py_CLEAR(clear_module_state->__pyx_tuple__9);
+  Py_CLEAR(clear_module_state->__pyx_tuple__11);
+  Py_CLEAR(clear_module_state->__pyx_tuple__13);
+  Py_CLEAR(clear_module_state->__pyx_tuple__15);
   Py_CLEAR(clear_module_state->__pyx_codeobj__6);
   Py_CLEAR(clear_module_state->__pyx_codeobj__8);
   Py_CLEAR(clear_module_state->__pyx_codeobj__10);
+  Py_CLEAR(clear_module_state->__pyx_codeobj__12);
+  Py_CLEAR(clear_module_state->__pyx_codeobj__14);
+  Py_CLEAR(clear_module_state->__pyx_codeobj__16);
+  Py_CLEAR(clear_module_state->__pyx_codeobj__17);
+  Py_CLEAR(clear_module_state->__pyx_codeobj__18);
   return 0;
 }
 #endif
@@ -2307,10 +2417,12 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_kp_u_Error_no_optimal_solution_found);
   Py_VISIT(traverse_module_state->__pyx_n_s_L);
   Py_VISIT(traverse_module_state->__pyx_n_s_U);
-  Py_VISIT(traverse_module_state->__pyx_n_s__11);
+  Py_VISIT(traverse_module_state->__pyx_n_s__19);
   Py_VISIT(traverse_module_state->__pyx_n_s__3);
   Py_VISIT(traverse_module_state->__pyx_kp_u__4);
-  Py_VISIT(traverse_module_state->__pyx_n_s_array);
+  Py_VISIT(traverse_module_state->__pyx_n_s_accepted);
+  Py_VISIT(traverse_module_state->__pyx_n_s_alpha);
+  Py_VISIT(traverse_module_state->__pyx_n_s_args);
   Py_VISIT(traverse_module_state->__pyx_n_s_asyncio_coroutines);
   Py_VISIT(traverse_module_state->__pyx_n_s_b_ub);
   Py_VISIT(traverse_module_state->__pyx_n_s_beta);
@@ -2319,12 +2431,16 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_n_s_cline_in_traceback);
   Py_VISIT(traverse_module_state->__pyx_n_s_copy);
   Py_VISIT(traverse_module_state->__pyx_n_s_cos);
+  Py_VISIT(traverse_module_state->__pyx_n_s_e);
   Py_VISIT(traverse_module_state->__pyx_n_s_end);
   Py_VISIT(traverse_module_state->__pyx_n_s_enumerate);
+  Py_VISIT(traverse_module_state->__pyx_n_s_exp);
+  Py_VISIT(traverse_module_state->__pyx_n_s_format);
   Py_VISIT(traverse_module_state->__pyx_n_s_fun);
   Py_VISIT(traverse_module_state->__pyx_n_s_functions);
   Py_VISIT(traverse_module_state->__pyx_kp_s_functions_pyx);
   Py_VISIT(traverse_module_state->__pyx_n_s_generateSyntheticSequence);
+  Py_VISIT(traverse_module_state->__pyx_n_s_getThreshold);
   Py_VISIT(traverse_module_state->__pyx_kp_u_highs_ds);
   Py_VISIT(traverse_module_state->__pyx_n_s_import);
   Py_VISIT(traverse_module_state->__pyx_n_s_inf);
@@ -2332,29 +2448,38 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_n_s_interval);
   Py_VISIT(traverse_module_state->__pyx_n_s_is_coroutine);
   Py_VISIT(traverse_module_state->__pyx_n_s_k);
+  Py_VISIT(traverse_module_state->__pyx_n_s_lambertw);
   Py_VISIT(traverse_module_state->__pyx_n_s_linprog);
   Py_VISIT(traverse_module_state->__pyx_n_s_main);
   Py_VISIT(traverse_module_state->__pyx_n_s_math);
   Py_VISIT(traverse_module_state->__pyx_n_s_method);
+  Py_VISIT(traverse_module_state->__pyx_n_s_minimize);
   Py_VISIT(traverse_module_state->__pyx_n_s_name);
   Py_VISIT(traverse_module_state->__pyx_n_s_np);
   Py_VISIT(traverse_module_state->__pyx_n_s_numpy);
   Py_VISIT(traverse_module_state->__pyx_n_s_oneMinOnline);
-  Py_VISIT(traverse_module_state->__pyx_n_s_optimalSol);
+  Py_VISIT(traverse_module_state->__pyx_n_s_optimalSolution);
+  Py_VISIT(traverse_module_state->__pyx_n_s_owtHelper);
+  Py_VISIT(traverse_module_state->__pyx_n_s_owtOnline);
   Py_VISIT(traverse_module_state->__pyx_n_s_pandas);
   Py_VISIT(traverse_module_state->__pyx_n_s_pd);
   Py_VISIT(traverse_module_state->__pyx_n_s_pickle);
   Py_VISIT(traverse_module_state->__pyx_n_s_print);
   Py_VISIT(traverse_module_state->__pyx_n_s_random);
   Py_VISIT(traverse_module_state->__pyx_n_s_range);
+  Py_VISIT(traverse_module_state->__pyx_n_s_roroHelper);
+  Py_VISIT(traverse_module_state->__pyx_n_s_roroOnline);
   Py_VISIT(traverse_module_state->__pyx_n_s_scipy_optimize);
+  Py_VISIT(traverse_module_state->__pyx_n_s_scipy_special);
+  Py_VISIT(traverse_module_state->__pyx_kp_u_something_went_wrong_here_w_j);
   Py_VISIT(traverse_module_state->__pyx_n_s_spec);
   Py_VISIT(traverse_module_state->__pyx_n_s_sqrt);
   Py_VISIT(traverse_module_state->__pyx_n_s_start);
   Py_VISIT(traverse_module_state->__pyx_n_s_status);
   Py_VISIT(traverse_module_state->__pyx_n_s_test);
-  Py_VISIT(traverse_module_state->__pyx_n_s_tolist);
+  Py_VISIT(traverse_module_state->__pyx_n_s_val);
   Py_VISIT(traverse_module_state->__pyx_n_s_vals);
+  Py_VISIT(traverse_module_state->__pyx_n_s_w);
   Py_VISIT(traverse_module_state->__pyx_n_s_x);
   Py_VISIT(traverse_module_state->__pyx_float_5_1);
   Py_VISIT(traverse_module_state->__pyx_int_0);
@@ -2366,9 +2491,17 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_tuple__5);
   Py_VISIT(traverse_module_state->__pyx_tuple__7);
   Py_VISIT(traverse_module_state->__pyx_tuple__9);
+  Py_VISIT(traverse_module_state->__pyx_tuple__11);
+  Py_VISIT(traverse_module_state->__pyx_tuple__13);
+  Py_VISIT(traverse_module_state->__pyx_tuple__15);
   Py_VISIT(traverse_module_state->__pyx_codeobj__6);
   Py_VISIT(traverse_module_state->__pyx_codeobj__8);
   Py_VISIT(traverse_module_state->__pyx_codeobj__10);
+  Py_VISIT(traverse_module_state->__pyx_codeobj__12);
+  Py_VISIT(traverse_module_state->__pyx_codeobj__14);
+  Py_VISIT(traverse_module_state->__pyx_codeobj__16);
+  Py_VISIT(traverse_module_state->__pyx_codeobj__17);
+  Py_VISIT(traverse_module_state->__pyx_codeobj__18);
   return 0;
 }
 #endif
@@ -2403,10 +2536,12 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #define __pyx_kp_u_Error_no_optimal_solution_found __pyx_mstate_global->__pyx_kp_u_Error_no_optimal_solution_found
 #define __pyx_n_s_L __pyx_mstate_global->__pyx_n_s_L
 #define __pyx_n_s_U __pyx_mstate_global->__pyx_n_s_U
-#define __pyx_n_s__11 __pyx_mstate_global->__pyx_n_s__11
+#define __pyx_n_s__19 __pyx_mstate_global->__pyx_n_s__19
 #define __pyx_n_s__3 __pyx_mstate_global->__pyx_n_s__3
 #define __pyx_kp_u__4 __pyx_mstate_global->__pyx_kp_u__4
-#define __pyx_n_s_array __pyx_mstate_global->__pyx_n_s_array
+#define __pyx_n_s_accepted __pyx_mstate_global->__pyx_n_s_accepted
+#define __pyx_n_s_alpha __pyx_mstate_global->__pyx_n_s_alpha
+#define __pyx_n_s_args __pyx_mstate_global->__pyx_n_s_args
 #define __pyx_n_s_asyncio_coroutines __pyx_mstate_global->__pyx_n_s_asyncio_coroutines
 #define __pyx_n_s_b_ub __pyx_mstate_global->__pyx_n_s_b_ub
 #define __pyx_n_s_beta __pyx_mstate_global->__pyx_n_s_beta
@@ -2415,12 +2550,16 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #define __pyx_n_s_cline_in_traceback __pyx_mstate_global->__pyx_n_s_cline_in_traceback
 #define __pyx_n_s_copy __pyx_mstate_global->__pyx_n_s_copy
 #define __pyx_n_s_cos __pyx_mstate_global->__pyx_n_s_cos
+#define __pyx_n_s_e __pyx_mstate_global->__pyx_n_s_e
 #define __pyx_n_s_end __pyx_mstate_global->__pyx_n_s_end
 #define __pyx_n_s_enumerate __pyx_mstate_global->__pyx_n_s_enumerate
+#define __pyx_n_s_exp __pyx_mstate_global->__pyx_n_s_exp
+#define __pyx_n_s_format __pyx_mstate_global->__pyx_n_s_format
 #define __pyx_n_s_fun __pyx_mstate_global->__pyx_n_s_fun
 #define __pyx_n_s_functions __pyx_mstate_global->__pyx_n_s_functions
 #define __pyx_kp_s_functions_pyx __pyx_mstate_global->__pyx_kp_s_functions_pyx
 #define __pyx_n_s_generateSyntheticSequence __pyx_mstate_global->__pyx_n_s_generateSyntheticSequence
+#define __pyx_n_s_getThreshold __pyx_mstate_global->__pyx_n_s_getThreshold
 #define __pyx_kp_u_highs_ds __pyx_mstate_global->__pyx_kp_u_highs_ds
 #define __pyx_n_s_import __pyx_mstate_global->__pyx_n_s_import
 #define __pyx_n_s_inf __pyx_mstate_global->__pyx_n_s_inf
@@ -2428,29 +2567,38 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #define __pyx_n_s_interval __pyx_mstate_global->__pyx_n_s_interval
 #define __pyx_n_s_is_coroutine __pyx_mstate_global->__pyx_n_s_is_coroutine
 #define __pyx_n_s_k __pyx_mstate_global->__pyx_n_s_k
+#define __pyx_n_s_lambertw __pyx_mstate_global->__pyx_n_s_lambertw
 #define __pyx_n_s_linprog __pyx_mstate_global->__pyx_n_s_linprog
 #define __pyx_n_s_main __pyx_mstate_global->__pyx_n_s_main
 #define __pyx_n_s_math __pyx_mstate_global->__pyx_n_s_math
 #define __pyx_n_s_method __pyx_mstate_global->__pyx_n_s_method
+#define __pyx_n_s_minimize __pyx_mstate_global->__pyx_n_s_minimize
 #define __pyx_n_s_name __pyx_mstate_global->__pyx_n_s_name
 #define __pyx_n_s_np __pyx_mstate_global->__pyx_n_s_np
 #define __pyx_n_s_numpy __pyx_mstate_global->__pyx_n_s_numpy
 #define __pyx_n_s_oneMinOnline __pyx_mstate_global->__pyx_n_s_oneMinOnline
-#define __pyx_n_s_optimalSol __pyx_mstate_global->__pyx_n_s_optimalSol
+#define __pyx_n_s_optimalSolution __pyx_mstate_global->__pyx_n_s_optimalSolution
+#define __pyx_n_s_owtHelper __pyx_mstate_global->__pyx_n_s_owtHelper
+#define __pyx_n_s_owtOnline __pyx_mstate_global->__pyx_n_s_owtOnline
 #define __pyx_n_s_pandas __pyx_mstate_global->__pyx_n_s_pandas
 #define __pyx_n_s_pd __pyx_mstate_global->__pyx_n_s_pd
 #define __pyx_n_s_pickle __pyx_mstate_global->__pyx_n_s_pickle
 #define __pyx_n_s_print __pyx_mstate_global->__pyx_n_s_print
 #define __pyx_n_s_random __pyx_mstate_global->__pyx_n_s_random
 #define __pyx_n_s_range __pyx_mstate_global->__pyx_n_s_range
+#define __pyx_n_s_roroHelper __pyx_mstate_global->__pyx_n_s_roroHelper
+#define __pyx_n_s_roroOnline __pyx_mstate_global->__pyx_n_s_roroOnline
 #define __pyx_n_s_scipy_optimize __pyx_mstate_global->__pyx_n_s_scipy_optimize
+#define __pyx_n_s_scipy_special __pyx_mstate_global->__pyx_n_s_scipy_special
+#define __pyx_kp_u_something_went_wrong_here_w_j __pyx_mstate_global->__pyx_kp_u_something_went_wrong_here_w_j
 #define __pyx_n_s_spec __pyx_mstate_global->__pyx_n_s_spec
 #define __pyx_n_s_sqrt __pyx_mstate_global->__pyx_n_s_sqrt
 #define __pyx_n_s_start __pyx_mstate_global->__pyx_n_s_start
 #define __pyx_n_s_status __pyx_mstate_global->__pyx_n_s_status
 #define __pyx_n_s_test __pyx_mstate_global->__pyx_n_s_test
-#define __pyx_n_s_tolist __pyx_mstate_global->__pyx_n_s_tolist
+#define __pyx_n_s_val __pyx_mstate_global->__pyx_n_s_val
 #define __pyx_n_s_vals __pyx_mstate_global->__pyx_n_s_vals
+#define __pyx_n_s_w __pyx_mstate_global->__pyx_n_s_w
 #define __pyx_n_s_x __pyx_mstate_global->__pyx_n_s_x
 #define __pyx_float_5_1 __pyx_mstate_global->__pyx_float_5_1
 #define __pyx_int_0 __pyx_mstate_global->__pyx_int_0
@@ -2462,16 +2610,24 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #define __pyx_tuple__5 __pyx_mstate_global->__pyx_tuple__5
 #define __pyx_tuple__7 __pyx_mstate_global->__pyx_tuple__7
 #define __pyx_tuple__9 __pyx_mstate_global->__pyx_tuple__9
+#define __pyx_tuple__11 __pyx_mstate_global->__pyx_tuple__11
+#define __pyx_tuple__13 __pyx_mstate_global->__pyx_tuple__13
+#define __pyx_tuple__15 __pyx_mstate_global->__pyx_tuple__15
 #define __pyx_codeobj__6 __pyx_mstate_global->__pyx_codeobj__6
 #define __pyx_codeobj__8 __pyx_mstate_global->__pyx_codeobj__8
 #define __pyx_codeobj__10 __pyx_mstate_global->__pyx_codeobj__10
+#define __pyx_codeobj__12 __pyx_mstate_global->__pyx_codeobj__12
+#define __pyx_codeobj__14 __pyx_mstate_global->__pyx_codeobj__14
+#define __pyx_codeobj__16 __pyx_mstate_global->__pyx_codeobj__16
+#define __pyx_codeobj__17 __pyx_mstate_global->__pyx_codeobj__17
+#define __pyx_codeobj__18 __pyx_mstate_global->__pyx_codeobj__18
 /* #### Code section: module_code ### */
 
-/* "functions.pyx":90
+/* "functions.pyx":92
  * # length of job             -- k
  * # switching cost            -- beta
  * cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float beta):             # <<<<<<<<<<<<<<
- *     cdef int accepted, lastElem, i
+ *     cdef int lastElem, i
  *     cdef bint accept, prevAccepted
  */
 
@@ -2483,16 +2639,15 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __pyx_v_k, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
-  int __pyx_v_accepted;
   int __pyx_v_lastElem;
   int __pyx_v_i;
   int __pyx_v_accept;
   int __pyx_v_prevAccepted;
   PyObject *__pyx_v_sol = 0;
-  PyObject *__pyx_v_runningList = 0;
   float __pyx_v_cost;
   float __pyx_v_threshold;
   float __pyx_v_val;
+  float __pyx_v_accepted;
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -2502,16 +2657,16 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
   PyObject *__pyx_t_5 = NULL;
   int __pyx_t_6;
   float __pyx_t_7;
-  Py_ssize_t __pyx_t_8;
+  int __pyx_t_8;
   int __pyx_t_9;
-  int __pyx_t_10;
+  Py_ssize_t __pyx_t_10;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("oneMinOnline", 0);
 
-  /* "functions.pyx":96
- *     cdef float cost, threshold, val
+  /* "functions.pyx":98
+ *     cdef float cost, threshold, val, accepted
  * 
  *     prevAccepted = False             # <<<<<<<<<<<<<<
  *     sol = []
@@ -2519,55 +2674,43 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
  */
   __pyx_v_prevAccepted = 0;
 
-  /* "functions.pyx":97
+  /* "functions.pyx":99
  * 
  *     prevAccepted = False
  *     sol = []             # <<<<<<<<<<<<<<
  *     accepted = 0
- *     runningList = []
+ *     lastElem = len(vals)
  */
-  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 97, __pyx_L1_error)
+  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 99, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_sol = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "functions.pyx":98
+  /* "functions.pyx":100
  *     prevAccepted = False
  *     sol = []
  *     accepted = 0             # <<<<<<<<<<<<<<
- *     runningList = []
- *     lastElem = len(vals)
- */
-  __pyx_v_accepted = 0;
-
-  /* "functions.pyx":99
- *     sol = []
- *     accepted = 0
- *     runningList = []             # <<<<<<<<<<<<<<
  *     lastElem = len(vals)
  *     cost = 0
  */
-  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 99, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_1);
-  __pyx_v_runningList = ((PyObject*)__pyx_t_1);
-  __pyx_t_1 = 0;
+  __pyx_v_accepted = 0.0;
 
-  /* "functions.pyx":100
+  /* "functions.pyx":101
+ *     sol = []
  *     accepted = 0
- *     runningList = []
  *     lastElem = len(vals)             # <<<<<<<<<<<<<<
  *     cost = 0
  *     L = 35
  */
   if (unlikely(__pyx_v_vals == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 100, __pyx_L1_error)
+    __PYX_ERR(0, 101, __pyx_L1_error)
   }
-  __pyx_t_2 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_2 == ((Py_ssize_t)-1))) __PYX_ERR(0, 100, __pyx_L1_error)
+  __pyx_t_2 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_2 == ((Py_ssize_t)-1))) __PYX_ERR(0, 101, __pyx_L1_error)
   __pyx_v_lastElem = __pyx_t_2;
 
-  /* "functions.pyx":101
- *     runningList = []
+  /* "functions.pyx":102
+ *     accepted = 0
  *     lastElem = len(vals)
  *     cost = 0             # <<<<<<<<<<<<<<
  *     L = 35
@@ -2575,7 +2718,7 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
  */
   __pyx_v_cost = 0.0;
 
-  /* "functions.pyx":102
+  /* "functions.pyx":103
  *     lastElem = len(vals)
  *     cost = 0
  *     L = 35             # <<<<<<<<<<<<<<
@@ -2584,7 +2727,7 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
  */
   __pyx_v_L = 35.0;
 
-  /* "functions.pyx":103
+  /* "functions.pyx":104
  *     cost = 0
  *     L = 35
  *     U = 1105             # <<<<<<<<<<<<<<
@@ -2593,19 +2736,19 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
  */
   __pyx_v_U = 1105.0;
 
-  /* "functions.pyx":105
+  /* "functions.pyx":106
  *     U = 1105
  * 
  *     threshold = math.sqrt(U*L)             # <<<<<<<<<<<<<<
  * 
  *     #simulate behavior of online algorithm using a for loop
  */
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_n_s_math); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 105, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_n_s_math); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 106, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_n_s_sqrt); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 105, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_n_s_sqrt); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 106, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = PyFloat_FromDouble((__pyx_v_U * __pyx_v_L)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 105, __pyx_L1_error)
+  __pyx_t_3 = PyFloat_FromDouble((__pyx_v_U * __pyx_v_L)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 106, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __pyx_t_5 = NULL;
   __pyx_t_6 = 0;
@@ -2624,267 +2767,284 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
     __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_4, __pyx_callargs+1-__pyx_t_6, 1+__pyx_t_6);
     __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 105, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 106, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   }
-  __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 105, __pyx_L1_error)
+  __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 106, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   __pyx_v_threshold = __pyx_t_7;
 
-  /* "functions.pyx":108
+  /* "functions.pyx":109
  * 
  *     #simulate behavior of online algorithm using a for loop
  *     for (i, val) in enumerate(vals):             # <<<<<<<<<<<<<<
- *         if accepted + (len(vals)-i) == k: # must accept all remaining elements
- *             lastElem = i
+ *         if accepted >= k:
+ *             sol.append(0)
  */
   __pyx_t_6 = 0;
   __pyx_t_1 = __pyx_v_vals; __Pyx_INCREF(__pyx_t_1); __pyx_t_2 = 0;
   for (;;) {
     if (__pyx_t_2 >= PyList_GET_SIZE(__pyx_t_1)) break;
     #if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS
-    __pyx_t_4 = PyList_GET_ITEM(__pyx_t_1, __pyx_t_2); __Pyx_INCREF(__pyx_t_4); __pyx_t_2++; if (unlikely((0 < 0))) __PYX_ERR(0, 108, __pyx_L1_error)
+    __pyx_t_4 = PyList_GET_ITEM(__pyx_t_1, __pyx_t_2); __Pyx_INCREF(__pyx_t_4); __pyx_t_2++; if (unlikely((0 < 0))) __PYX_ERR(0, 109, __pyx_L1_error)
     #else
-    __pyx_t_4 = PySequence_ITEM(__pyx_t_1, __pyx_t_2); __pyx_t_2++; if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 108, __pyx_L1_error)
+    __pyx_t_4 = PySequence_ITEM(__pyx_t_1, __pyx_t_2); __pyx_t_2++; if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 109, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
     #endif
-    __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_4); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 108, __pyx_L1_error)
+    __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_4); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 109, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __pyx_v_val = __pyx_t_7;
     __pyx_v_i = __pyx_t_6;
     __pyx_t_6 = (__pyx_t_6 + 1);
 
-    /* "functions.pyx":109
+    /* "functions.pyx":110
  *     #simulate behavior of online algorithm using a for loop
  *     for (i, val) in enumerate(vals):
+ *         if accepted >= k:             # <<<<<<<<<<<<<<
+ *             sol.append(0)
+ *             continue
+ */
+    __pyx_t_8 = (__pyx_v_accepted >= __pyx_v_k);
+    if (__pyx_t_8) {
+
+      /* "functions.pyx":111
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= k:
+ *             sol.append(0)             # <<<<<<<<<<<<<<
+ *             continue
+ * 
+ */
+      __pyx_t_9 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_int_0); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 111, __pyx_L1_error)
+
+      /* "functions.pyx":112
+ *         if accepted >= k:
+ *             sol.append(0)
+ *             continue             # <<<<<<<<<<<<<<
+ * 
+ *         if accepted + (len(vals)-i) == k: # must accept all remaining elements
+ */
+      goto __pyx_L3_continue;
+
+      /* "functions.pyx":110
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= k:             # <<<<<<<<<<<<<<
+ *             sol.append(0)
+ *             continue
+ */
+    }
+
+    /* "functions.pyx":114
+ *             continue
+ * 
  *         if accepted + (len(vals)-i) == k: # must accept all remaining elements             # <<<<<<<<<<<<<<
  *             lastElem = i
  *             break
  */
     if (unlikely(__pyx_v_vals == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-      __PYX_ERR(0, 109, __pyx_L1_error)
+      __PYX_ERR(0, 114, __pyx_L1_error)
     }
-    __pyx_t_8 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 109, __pyx_L1_error)
-    __pyx_t_9 = ((__pyx_v_accepted + (__pyx_t_8 - __pyx_v_i)) == __pyx_v_k);
-    if (__pyx_t_9) {
+    __pyx_t_10 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_10 == ((Py_ssize_t)-1))) __PYX_ERR(0, 114, __pyx_L1_error)
+    __pyx_t_8 = ((__pyx_v_accepted + (__pyx_t_10 - __pyx_v_i)) == __pyx_v_k);
+    if (__pyx_t_8) {
 
-      /* "functions.pyx":110
- *     for (i, val) in enumerate(vals):
+      /* "functions.pyx":115
+ * 
  *         if accepted + (len(vals)-i) == k: # must accept all remaining elements
  *             lastElem = i             # <<<<<<<<<<<<<<
  *             break
- *         accept = (val <= threshold)
+ * 
  */
       __pyx_v_lastElem = __pyx_v_i;
 
-      /* "functions.pyx":111
+      /* "functions.pyx":116
  *         if accepted + (len(vals)-i) == k: # must accept all remaining elements
  *             lastElem = i
  *             break             # <<<<<<<<<<<<<<
+ * 
  *         accept = (val <= threshold)
- *         if prevAccepted != accept:
  */
       goto __pyx_L4_break;
 
-      /* "functions.pyx":109
- *     #simulate behavior of online algorithm using a for loop
- *     for (i, val) in enumerate(vals):
+      /* "functions.pyx":114
+ *             continue
+ * 
  *         if accepted + (len(vals)-i) == k: # must accept all remaining elements             # <<<<<<<<<<<<<<
  *             lastElem = i
  *             break
  */
     }
 
-    /* "functions.pyx":112
- *             lastElem = i
+    /* "functions.pyx":118
  *             break
+ * 
  *         accept = (val <= threshold)             # <<<<<<<<<<<<<<
  *         if prevAccepted != accept:
- *             if len(runningList) > 1:
+ *             cost += beta * (1/k)
  */
     __pyx_v_accept = (__pyx_v_val <= __pyx_v_threshold);
 
-    /* "functions.pyx":113
- *             break
+    /* "functions.pyx":119
+ * 
  *         accept = (val <= threshold)
  *         if prevAccepted != accept:             # <<<<<<<<<<<<<<
- *             if len(runningList) > 1:
- *                 sol.append(runningList)
+ *             cost += beta * (1/k)
+ *         if accept:
  */
-    __pyx_t_9 = (__pyx_v_prevAccepted != __pyx_v_accept);
-    if (__pyx_t_9) {
+    __pyx_t_8 = (__pyx_v_prevAccepted != __pyx_v_accept);
+    if (__pyx_t_8) {
 
-      /* "functions.pyx":114
+      /* "functions.pyx":120
  *         accept = (val <= threshold)
  *         if prevAccepted != accept:
- *             if len(runningList) > 1:             # <<<<<<<<<<<<<<
- *                 sol.append(runningList)
- *             runningList = []
+ *             cost += beta * (1/k)             # <<<<<<<<<<<<<<
+ *         if accept:
+ *             sol.append(1/k)
  */
-      __pyx_t_8 = PyList_GET_SIZE(__pyx_v_runningList); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 114, __pyx_L1_error)
-      __pyx_t_9 = (__pyx_t_8 > 1);
-      if (__pyx_t_9) {
-
-        /* "functions.pyx":115
- *         if prevAccepted != accept:
- *             if len(runningList) > 1:
- *                 sol.append(runningList)             # <<<<<<<<<<<<<<
- *             runningList = []
- *             cost += beta
- */
-        __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_v_runningList); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 115, __pyx_L1_error)
-
-        /* "functions.pyx":114
- *         accept = (val <= threshold)
- *         if prevAccepted != accept:
- *             if len(runningList) > 1:             # <<<<<<<<<<<<<<
- *                 sol.append(runningList)
- *             runningList = []
- */
+      if (unlikely(__pyx_v_k == 0)) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+        __PYX_ERR(0, 120, __pyx_L1_error)
       }
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_beta * (1.0 / ((double)__pyx_v_k))));
 
-      /* "functions.pyx":116
- *             if len(runningList) > 1:
- *                 sol.append(runningList)
- *             runningList = []             # <<<<<<<<<<<<<<
- *             cost += beta
- *         if accept:
- */
-      __pyx_t_4 = PyList_New(0); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 116, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_4);
-      __Pyx_DECREF_SET(__pyx_v_runningList, ((PyObject*)__pyx_t_4));
-      __pyx_t_4 = 0;
-
-      /* "functions.pyx":117
- *                 sol.append(runningList)
- *             runningList = []
- *             cost += beta             # <<<<<<<<<<<<<<
- *         if accept:
- *             runningList.append(val)
- */
-      __pyx_v_cost = (__pyx_v_cost + __pyx_v_beta);
-
-      /* "functions.pyx":113
- *             break
+      /* "functions.pyx":119
+ * 
  *         accept = (val <= threshold)
  *         if prevAccepted != accept:             # <<<<<<<<<<<<<<
- *             if len(runningList) > 1:
- *                 sol.append(runningList)
+ *             cost += beta * (1/k)
+ *         if accept:
  */
     }
 
-    /* "functions.pyx":118
- *             runningList = []
- *             cost += beta
+    /* "functions.pyx":121
+ *         if prevAccepted != accept:
+ *             cost += beta * (1/k)
  *         if accept:             # <<<<<<<<<<<<<<
- *             runningList.append(val)
+ *             sol.append(1/k)
  *             accepted += 1
  */
     if (__pyx_v_accept) {
 
-      /* "functions.pyx":119
- *             cost += beta
+      /* "functions.pyx":122
+ *             cost += beta * (1/k)
  *         if accept:
- *             runningList.append(val)             # <<<<<<<<<<<<<<
+ *             sol.append(1/k)             # <<<<<<<<<<<<<<
  *             accepted += 1
- *             cost += val
+ *             cost += val * (1/k)
  */
-      __pyx_t_4 = PyFloat_FromDouble(__pyx_v_val); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 119, __pyx_L1_error)
+      if (unlikely(__pyx_v_k == 0)) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+        __PYX_ERR(0, 122, __pyx_L1_error)
+      }
+      __pyx_t_4 = PyFloat_FromDouble((1.0 / ((double)__pyx_v_k))); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 122, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_4);
-      __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_runningList, __pyx_t_4); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 119, __pyx_L1_error)
+      __pyx_t_9 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_t_4); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 122, __pyx_L1_error)
       __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
-      /* "functions.pyx":120
+      /* "functions.pyx":123
  *         if accept:
- *             runningList.append(val)
+ *             sol.append(1/k)
  *             accepted += 1             # <<<<<<<<<<<<<<
- *             cost += val
+ *             cost += val * (1/k)
  *             if accepted == k:
  */
-      __pyx_v_accepted = (__pyx_v_accepted + 1);
+      __pyx_v_accepted = (__pyx_v_accepted + 1.0);
 
-      /* "functions.pyx":121
- *             runningList.append(val)
+      /* "functions.pyx":124
+ *             sol.append(1/k)
  *             accepted += 1
- *             cost += val             # <<<<<<<<<<<<<<
+ *             cost += val * (1/k)             # <<<<<<<<<<<<<<
  *             if accepted == k:
- *                 sol.append(runningList)
+ *                 cost += beta * (1/k) # one last switching cost to turn off
  */
-      __pyx_v_cost = (__pyx_v_cost + __pyx_v_val);
+      if (unlikely(__pyx_v_k == 0)) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+        __PYX_ERR(0, 124, __pyx_L1_error)
+      }
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_val * (1.0 / ((double)__pyx_v_k))));
 
-      /* "functions.pyx":122
+      /* "functions.pyx":125
  *             accepted += 1
- *             cost += val
+ *             cost += val * (1/k)
  *             if accepted == k:             # <<<<<<<<<<<<<<
- *                 sol.append(runningList)
- *                 cost += beta # one last switching cost to turn off
+ *                 cost += beta * (1/k) # one last switching cost to turn off
+ *                 continue
  */
-      __pyx_t_9 = (__pyx_v_accepted == __pyx_v_k);
-      if (__pyx_t_9) {
+      __pyx_t_8 = (__pyx_v_accepted == __pyx_v_k);
+      if (__pyx_t_8) {
 
-        /* "functions.pyx":123
- *             cost += val
+        /* "functions.pyx":126
+ *             cost += val * (1/k)
  *             if accepted == k:
- *                 sol.append(runningList)             # <<<<<<<<<<<<<<
- *                 cost += beta # one last switching cost to turn off
- *                 break
+ *                 cost += beta * (1/k) # one last switching cost to turn off             # <<<<<<<<<<<<<<
+ *                 continue
+ *         else:
  */
-        __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_v_runningList); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 123, __pyx_L1_error)
+        if (unlikely(__pyx_v_k == 0)) {
+          PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+          __PYX_ERR(0, 126, __pyx_L1_error)
+        }
+        __pyx_v_cost = (__pyx_v_cost + (__pyx_v_beta * (1.0 / ((double)__pyx_v_k))));
 
-        /* "functions.pyx":124
+        /* "functions.pyx":127
  *             if accepted == k:
- *                 sol.append(runningList)
- *                 cost += beta # one last switching cost to turn off             # <<<<<<<<<<<<<<
- *                 break
- *         prevAccepted = accept
+ *                 cost += beta * (1/k) # one last switching cost to turn off
+ *                 continue             # <<<<<<<<<<<<<<
+ *         else:
+ *             sol.append(0)
  */
-        __pyx_v_cost = (__pyx_v_cost + __pyx_v_beta);
+        goto __pyx_L3_continue;
 
         /* "functions.pyx":125
- *                 sol.append(runningList)
- *                 cost += beta # one last switching cost to turn off
- *                 break             # <<<<<<<<<<<<<<
- *         prevAccepted = accept
- * 
- */
-        goto __pyx_L4_break;
-
-        /* "functions.pyx":122
  *             accepted += 1
- *             cost += val
+ *             cost += val * (1/k)
  *             if accepted == k:             # <<<<<<<<<<<<<<
- *                 sol.append(runningList)
- *                 cost += beta # one last switching cost to turn off
+ *                 cost += beta * (1/k) # one last switching cost to turn off
+ *                 continue
  */
       }
 
-      /* "functions.pyx":118
- *             runningList = []
- *             cost += beta
+      /* "functions.pyx":121
+ *         if prevAccepted != accept:
+ *             cost += beta * (1/k)
  *         if accept:             # <<<<<<<<<<<<<<
- *             runningList.append(val)
+ *             sol.append(1/k)
  *             accepted += 1
  */
+      goto __pyx_L8;
     }
 
-    /* "functions.pyx":126
- *                 cost += beta # one last switching cost to turn off
- *                 break
+    /* "functions.pyx":129
+ *                 continue
+ *         else:
+ *             sol.append(0)             # <<<<<<<<<<<<<<
+ *         prevAccepted = accept
+ * 
+ */
+    /*else*/ {
+      __pyx_t_9 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_int_0); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 129, __pyx_L1_error)
+    }
+    __pyx_L8:;
+
+    /* "functions.pyx":130
+ *         else:
+ *             sol.append(0)
  *         prevAccepted = accept             # <<<<<<<<<<<<<<
  * 
  *     if accepted < k:
  */
     __pyx_v_prevAccepted = __pyx_v_accept;
 
-    /* "functions.pyx":108
+    /* "functions.pyx":109
  * 
  *     #simulate behavior of online algorithm using a for loop
  *     for (i, val) in enumerate(vals):             # <<<<<<<<<<<<<<
- *         if accepted + (len(vals)-i) == k: # must accept all remaining elements
- *             lastElem = i
+ *         if accepted >= k:
+ *             sol.append(0)
  */
+    __pyx_L3_continue:;
   }
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   goto __pyx_L10_for_end;
@@ -2893,145 +3053,150 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
   goto __pyx_L10_for_end;
   __pyx_L10_for_end:;
 
-  /* "functions.pyx":128
+  /* "functions.pyx":132
  *         prevAccepted = accept
  * 
  *     if accepted < k:             # <<<<<<<<<<<<<<
  *         if prevAccepted != True:
- *             cost += 2*beta
+ *             cost += 2*beta * (1/k)
  */
-  __pyx_t_9 = (__pyx_v_accepted < __pyx_v_k);
-  if (__pyx_t_9) {
+  __pyx_t_8 = (__pyx_v_accepted < __pyx_v_k);
+  if (__pyx_t_8) {
 
-    /* "functions.pyx":129
+    /* "functions.pyx":133
  * 
  *     if accepted < k:
  *         if prevAccepted != True:             # <<<<<<<<<<<<<<
- *             cost += 2*beta
+ *             cost += 2*beta * (1/k)
  *         for i in range(lastElem, len(vals)):
  */
-    __pyx_t_9 = (__pyx_v_prevAccepted != 1);
-    if (__pyx_t_9) {
+    __pyx_t_8 = (__pyx_v_prevAccepted != 1);
+    if (__pyx_t_8) {
 
-      /* "functions.pyx":130
+      /* "functions.pyx":134
  *     if accepted < k:
  *         if prevAccepted != True:
- *             cost += 2*beta             # <<<<<<<<<<<<<<
+ *             cost += 2*beta * (1/k)             # <<<<<<<<<<<<<<
  *         for i in range(lastElem, len(vals)):
- *             runningList.append(vals[i])
+ *             sol.append(1/k)
  */
-      __pyx_v_cost = (__pyx_v_cost + (2.0 * __pyx_v_beta));
+      if (unlikely(__pyx_v_k == 0)) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+        __PYX_ERR(0, 134, __pyx_L1_error)
+      }
+      __pyx_v_cost = (__pyx_v_cost + ((2.0 * __pyx_v_beta) * (1.0 / ((double)__pyx_v_k))));
 
-      /* "functions.pyx":129
+      /* "functions.pyx":133
  * 
  *     if accepted < k:
  *         if prevAccepted != True:             # <<<<<<<<<<<<<<
- *             cost += 2*beta
+ *             cost += 2*beta * (1/k)
  *         for i in range(lastElem, len(vals)):
  */
     }
 
-    /* "functions.pyx":131
+    /* "functions.pyx":135
  *         if prevAccepted != True:
- *             cost += 2*beta
+ *             cost += 2*beta * (1/k)
  *         for i in range(lastElem, len(vals)):             # <<<<<<<<<<<<<<
- *             runningList.append(vals[i])
- *             cost += vals[i]
+ *             sol.append(1/k)
+ *             cost += vals[i] * (1/k)
  */
     if (unlikely(__pyx_v_vals == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-      __PYX_ERR(0, 131, __pyx_L1_error)
+      __PYX_ERR(0, 135, __pyx_L1_error)
     }
-    __pyx_t_2 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_2 == ((Py_ssize_t)-1))) __PYX_ERR(0, 131, __pyx_L1_error)
-    __pyx_t_8 = __pyx_t_2;
-    for (__pyx_t_6 = __pyx_v_lastElem; __pyx_t_6 < __pyx_t_8; __pyx_t_6+=1) {
+    __pyx_t_2 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_2 == ((Py_ssize_t)-1))) __PYX_ERR(0, 135, __pyx_L1_error)
+    __pyx_t_10 = __pyx_t_2;
+    for (__pyx_t_6 = __pyx_v_lastElem; __pyx_t_6 < __pyx_t_10; __pyx_t_6+=1) {
       __pyx_v_i = __pyx_t_6;
 
-      /* "functions.pyx":132
- *             cost += 2*beta
+      /* "functions.pyx":136
+ *             cost += 2*beta * (1/k)
  *         for i in range(lastElem, len(vals)):
- *             runningList.append(vals[i])             # <<<<<<<<<<<<<<
- *             cost += vals[i]
- *         sol.append(runningList)
- */
-      if (unlikely(__pyx_v_vals == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 132, __pyx_L1_error)
-      }
-      __pyx_t_1 = __Pyx_GetItemInt_List(__pyx_v_vals, __pyx_v_i, int, 1, __Pyx_PyInt_From_int, 1, 1, 1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 132, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_1);
-      __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_runningList, __pyx_t_1); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 132, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-      /* "functions.pyx":133
- *         for i in range(lastElem, len(vals)):
- *             runningList.append(vals[i])
- *             cost += vals[i]             # <<<<<<<<<<<<<<
- *         sol.append(runningList)
+ *             sol.append(1/k)             # <<<<<<<<<<<<<<
+ *             cost += vals[i] * (1/k)
  * 
  */
-      __pyx_t_1 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 133, __pyx_L1_error)
+      if (unlikely(__pyx_v_k == 0)) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+        __PYX_ERR(0, 136, __pyx_L1_error)
+      }
+      __pyx_t_1 = PyFloat_FromDouble((1.0 / ((double)__pyx_v_k))); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 136, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_1);
+      __pyx_t_9 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_t_1); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 136, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+      /* "functions.pyx":137
+ *         for i in range(lastElem, len(vals)):
+ *             sol.append(1/k)
+ *             cost += vals[i] * (1/k)             # <<<<<<<<<<<<<<
+ * 
+ *     return sol, cost
+ */
+      __pyx_t_1 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 137, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_1);
       if (unlikely(__pyx_v_vals == Py_None)) {
         PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 133, __pyx_L1_error)
+        __PYX_ERR(0, 137, __pyx_L1_error)
       }
-      __pyx_t_4 = __Pyx_GetItemInt_List(__pyx_v_vals, __pyx_v_i, int, 1, __Pyx_PyInt_From_int, 1, 1, 1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 133, __pyx_L1_error)
+      __pyx_t_4 = __Pyx_GetItemInt_List(__pyx_v_vals, __pyx_v_i, int, 1, __Pyx_PyInt_From_int, 1, 1, 1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 137, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_4);
-      __pyx_t_3 = PyNumber_InPlaceAdd(__pyx_t_1, __pyx_t_4); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 133, __pyx_L1_error)
+      if (unlikely(__pyx_v_k == 0)) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+        __PYX_ERR(0, 137, __pyx_L1_error)
+      }
+      __pyx_t_3 = PyFloat_FromDouble((1.0 / ((double)__pyx_v_k))); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 137, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_5 = PyNumber_Multiply(__pyx_t_4, __pyx_t_3); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 137, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_t_3 = PyNumber_InPlaceAdd(__pyx_t_1, __pyx_t_5); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 137, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
       __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-      __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_3); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 133, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_3); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 137, __pyx_L1_error)
       __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
       __pyx_v_cost = __pyx_t_7;
     }
 
-    /* "functions.pyx":134
- *             runningList.append(vals[i])
- *             cost += vals[i]
- *         sol.append(runningList)             # <<<<<<<<<<<<<<
- * 
- *     return sol, cost
- */
-    __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_v_runningList); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 134, __pyx_L1_error)
-
-    /* "functions.pyx":128
+    /* "functions.pyx":132
  *         prevAccepted = accept
  * 
  *     if accepted < k:             # <<<<<<<<<<<<<<
  *         if prevAccepted != True:
- *             cost += 2*beta
+ *             cost += 2*beta * (1/k)
  */
   }
 
-  /* "functions.pyx":136
- *         sol.append(runningList)
+  /* "functions.pyx":139
+ *             cost += vals[i] * (1/k)
  * 
  *     return sol, cost             # <<<<<<<<<<<<<<
  * 
  * 
  */
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_3 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 136, __pyx_L1_error)
+  __pyx_t_3 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 139, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = PyTuple_New(2); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 136, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_5 = PyTuple_New(2); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 139, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
   __Pyx_INCREF(__pyx_v_sol);
   __Pyx_GIVEREF(__pyx_v_sol);
-  PyTuple_SET_ITEM(__pyx_t_4, 0, __pyx_v_sol);
+  PyTuple_SET_ITEM(__pyx_t_5, 0, __pyx_v_sol);
   __Pyx_GIVEREF(__pyx_t_3);
-  PyTuple_SET_ITEM(__pyx_t_4, 1, __pyx_t_3);
+  PyTuple_SET_ITEM(__pyx_t_5, 1, __pyx_t_3);
   __pyx_t_3 = 0;
-  __pyx_r = ((PyObject*)__pyx_t_4);
-  __pyx_t_4 = 0;
+  __pyx_r = ((PyObject*)__pyx_t_5);
+  __pyx_t_5 = 0;
   goto __pyx_L0;
 
-  /* "functions.pyx":90
+  /* "functions.pyx":92
  * # length of job             -- k
  * # switching cost            -- beta
  * cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float beta):             # <<<<<<<<<<<<<<
- *     cdef int accepted, lastElem, i
+ *     cdef int lastElem, i
  *     cdef bint accept, prevAccepted
  */
 
@@ -3045,7 +3210,6 @@ static PyObject *__pyx_f_9functions_oneMinOnline(PyObject *__pyx_v_vals, int __p
   __pyx_r = 0;
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_sol);
-  __Pyx_XDECREF(__pyx_v_runningList);
   __Pyx_XGIVEREF(__pyx_r);
   __Pyx_RefNannyFinishContext();
   return __pyx_r;
@@ -3105,40 +3269,40 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       switch (__pyx_nargs) {
         case  0:
         if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_vals)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
         else goto __pyx_L5_argtuple_error;
         CYTHON_FALLTHROUGH;
         case  1:
         if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_k)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 1); __PYX_ERR(0, 90, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 1); __PYX_ERR(0, 92, __pyx_L3_error)
         }
         CYTHON_FALLTHROUGH;
         case  2:
         if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_U)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 2); __PYX_ERR(0, 90, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 2); __PYX_ERR(0, 92, __pyx_L3_error)
         }
         CYTHON_FALLTHROUGH;
         case  3:
         if (likely((values[3] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_L)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 3); __PYX_ERR(0, 90, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 3); __PYX_ERR(0, 92, __pyx_L3_error)
         }
         CYTHON_FALLTHROUGH;
         case  4:
         if (likely((values[4] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 4); __PYX_ERR(0, 90, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, 4); __PYX_ERR(0, 92, __pyx_L3_error)
         }
       }
       if (unlikely(kw_args > 0)) {
         const Py_ssize_t kwd_pos_args = __pyx_nargs;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "oneMinOnline") < 0)) __PYX_ERR(0, 90, __pyx_L3_error)
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "oneMinOnline") < 0)) __PYX_ERR(0, 92, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs != 5)) {
       goto __pyx_L5_argtuple_error;
@@ -3150,20 +3314,20 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
     }
     __pyx_v_vals = ((PyObject*)values[0]);
-    __pyx_v_k = __Pyx_PyInt_As_int(values[1]); if (unlikely((__pyx_v_k == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
-    __pyx_v_U = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
-    __pyx_v_L = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
-    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[4]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L3_error)
+    __pyx_v_k = __Pyx_PyInt_As_int(values[1]); if (unlikely((__pyx_v_k == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
+    __pyx_v_U = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
+    __pyx_v_L = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[4]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 92, __pyx_L3_error)
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, __pyx_nargs); __PYX_ERR(0, 90, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("oneMinOnline", 1, 5, 5, __pyx_nargs); __PYX_ERR(0, 92, __pyx_L3_error)
   __pyx_L3_error:;
   __Pyx_AddTraceback("functions.oneMinOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_vals), (&PyList_Type), 1, "vals", 1))) __PYX_ERR(0, 90, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_vals), (&PyList_Type), 1, "vals", 1))) __PYX_ERR(0, 92, __pyx_L1_error)
   __pyx_r = __pyx_pf_9functions_oneMinOnline(__pyx_self, __pyx_v_vals, __pyx_v_k, __pyx_v_U, __pyx_v_L, __pyx_v_beta);
 
   /* function exit code */
@@ -3184,7 +3348,7 @@ static PyObject *__pyx_pf_9functions_oneMinOnline(CYTHON_UNUSED PyObject *__pyx_
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("oneMinOnline", 0);
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = __pyx_f_9functions_oneMinOnline(__pyx_v_vals, __pyx_v_k, __pyx_v_U, __pyx_v_L, __pyx_v_beta, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 90, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_9functions_oneMinOnline(__pyx_v_vals, __pyx_v_k, __pyx_v_U, __pyx_v_L, __pyx_v_beta, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 92, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -3201,7 +3365,7 @@ static PyObject *__pyx_pf_9functions_oneMinOnline(CYTHON_UNUSED PyObject *__pyx_
   return __pyx_r;
 }
 
-/* "functions.pyx":139
+/* "functions.pyx":144
  * 
  * 
  * cdef float cosine(float x):             # <<<<<<<<<<<<<<
@@ -3223,19 +3387,19 @@ static float __pyx_f_9functions_cosine(float __pyx_v_x) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("cosine", 0);
 
-  /* "functions.pyx":140
+  /* "functions.pyx":145
  * 
  * cdef float cosine(float x):
  *     return (5.1 + 5 * math.cos(x/3.8))             # <<<<<<<<<<<<<<
  * 
  * cpdef list generateSyntheticSequence(float start, float end, float interval):
  */
-  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_n_s_math); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 140, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_n_s_math); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 145, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_3 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_n_s_cos); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 140, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_n_s_cos); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 145, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __pyx_t_2 = PyFloat_FromDouble((((double)__pyx_v_x) / 3.8)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 140, __pyx_L1_error)
+  __pyx_t_2 = PyFloat_FromDouble((((double)__pyx_v_x) / 3.8)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 145, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __pyx_t_4 = NULL;
   __pyx_t_5 = 0;
@@ -3254,22 +3418,22 @@ static float __pyx_f_9functions_cosine(float __pyx_v_x) {
     __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+1-__pyx_t_5, 1+__pyx_t_5);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 140, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 145, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   }
-  __pyx_t_3 = __Pyx_PyInt_MultiplyCObj(__pyx_int_5, __pyx_t_1, 5, 0, 0); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 140, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyInt_MultiplyCObj(__pyx_int_5, __pyx_t_1, 5, 0, 0); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 145, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-  __pyx_t_1 = __Pyx_PyFloat_AddCObj(__pyx_float_5_1, __pyx_t_3, 5.1, 0, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 140, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyFloat_AddCObj(__pyx_float_5_1, __pyx_t_3, 5.1, 0, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 145, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_6 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_6 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 140, __pyx_L1_error)
+  __pyx_t_6 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_6 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 145, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   __pyx_r = __pyx_t_6;
   goto __pyx_L0;
 
-  /* "functions.pyx":139
+  /* "functions.pyx":144
  * 
  * 
  * cdef float cosine(float x):             # <<<<<<<<<<<<<<
@@ -3290,7 +3454,7 @@ static float __pyx_f_9functions_cosine(float __pyx_v_x) {
   return __pyx_r;
 }
 
-/* "functions.pyx":142
+/* "functions.pyx":147
  *     return (5.1 + 5 * math.cos(x/3.8))
  * 
  * cpdef list generateSyntheticSequence(float start, float end, float interval):             # <<<<<<<<<<<<<<
@@ -3314,27 +3478,24 @@ static PyObject *__pyx_f_9functions_generateSyntheticSequence(float __pyx_v_star
   int __pyx_t_2;
   float __pyx_t_3;
   int __pyx_t_4;
-  PyObject *__pyx_t_5 = NULL;
-  PyObject *__pyx_t_6 = NULL;
-  int __pyx_t_7;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("generateSyntheticSequence", 0);
 
-  /* "functions.pyx":146
+  /* "functions.pyx":151
  *     cdef float cur, noise
  * 
  *     sequence = []             # <<<<<<<<<<<<<<
  * 
  *     cur = start
  */
-  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 146, __pyx_L1_error)
+  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 151, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_sequence = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "functions.pyx":148
+  /* "functions.pyx":153
  *     sequence = []
  * 
  *     cur = start             # <<<<<<<<<<<<<<
@@ -3343,7 +3504,7 @@ static PyObject *__pyx_f_9functions_generateSyntheticSequence(float __pyx_v_star
  */
   __pyx_v_cur = __pyx_v_start;
 
-  /* "functions.pyx":149
+  /* "functions.pyx":154
  * 
  *     cur = start
  *     while (cur < end):             # <<<<<<<<<<<<<<
@@ -3354,20 +3515,20 @@ static PyObject *__pyx_f_9functions_generateSyntheticSequence(float __pyx_v_star
     __pyx_t_2 = (__pyx_v_cur < __pyx_v_end);
     if (!__pyx_t_2) break;
 
-    /* "functions.pyx":150
+    /* "functions.pyx":155
  *     cur = start
  *     while (cur < end):
  *         sequence.append(cosine(cur))             # <<<<<<<<<<<<<<
  *         cur += interval
  * 
  */
-    __pyx_t_3 = __pyx_f_9functions_cosine(__pyx_v_cur); if (unlikely(__pyx_t_3 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 150, __pyx_L1_error)
-    __pyx_t_1 = PyFloat_FromDouble(__pyx_t_3); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 150, __pyx_L1_error)
+    __pyx_t_3 = __pyx_f_9functions_cosine(__pyx_v_cur); if (unlikely(__pyx_t_3 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 155, __pyx_L1_error)
+    __pyx_t_1 = PyFloat_FromDouble(__pyx_t_3); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 155, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
-    __pyx_t_4 = __Pyx_PyList_Append(__pyx_v_sequence, __pyx_t_1); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(0, 150, __pyx_L1_error)
+    __pyx_t_4 = __Pyx_PyList_Append(__pyx_v_sequence, __pyx_t_1); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(0, 155, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
-    /* "functions.pyx":151
+    /* "functions.pyx":156
  *     while (cur < end):
  *         sequence.append(cosine(cur))
  *         cur += interval             # <<<<<<<<<<<<<<
@@ -3377,73 +3538,19 @@ static PyObject *__pyx_f_9functions_generateSyntheticSequence(float __pyx_v_star
     __pyx_v_cur = (__pyx_v_cur + __pyx_v_interval);
   }
 
-  /* "functions.pyx":155
+  /* "functions.pyx":160
  *     # noise = np.random.normal(0,noiseFactor,len(sequence))
  * 
- *     sequence = np.array(sequence)             # <<<<<<<<<<<<<<
- * 
- *     sequence[sequence<0] = 0
- */
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_n_s_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 155, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_6 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_n_s_array); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 155, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __pyx_t_5 = NULL;
-  __pyx_t_7 = 0;
-  if (CYTHON_UNPACK_METHODS && unlikely(PyMethod_Check(__pyx_t_6))) {
-    __pyx_t_5 = PyMethod_GET_SELF(__pyx_t_6);
-    if (likely(__pyx_t_5)) {
-      PyObject* function = PyMethod_GET_FUNCTION(__pyx_t_6);
-      __Pyx_INCREF(__pyx_t_5);
-      __Pyx_INCREF(function);
-      __Pyx_DECREF_SET(__pyx_t_6, function);
-      __pyx_t_7 = 1;
-    }
-  }
-  {
-    PyObject *__pyx_callargs[2] = {__pyx_t_5, __pyx_v_sequence};
-    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_6, __pyx_callargs+1-__pyx_t_7, 1+__pyx_t_7);
-    __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 155, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_1);
-    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  }
-  if (!(likely(PyList_CheckExact(__pyx_t_1))||((__pyx_t_1) == Py_None) || __Pyx_RaiseUnexpectedTypeError("list", __pyx_t_1))) __PYX_ERR(0, 155, __pyx_L1_error)
-  __Pyx_DECREF_SET(__pyx_v_sequence, ((PyObject*)__pyx_t_1));
-  __pyx_t_1 = 0;
-
-  /* "functions.pyx":157
- *     sequence = np.array(sequence)
- * 
- *     sequence[sequence<0] = 0             # <<<<<<<<<<<<<<
- * 
- *     return sequence.tolist()
- */
-  if (unlikely(__pyx_v_sequence == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 157, __pyx_L1_error)
-  }
-  __pyx_t_1 = PyObject_RichCompare(__pyx_v_sequence, __pyx_int_0, Py_LT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 157, __pyx_L1_error)
-  if (unlikely((PyObject_SetItem(__pyx_v_sequence, __pyx_t_1, __pyx_int_0) < 0))) __PYX_ERR(0, 157, __pyx_L1_error)
-  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-  /* "functions.pyx":159
- *     sequence[sequence<0] = 0
- * 
- *     return sequence.tolist()             # <<<<<<<<<<<<<<
+ *     return sequence             # <<<<<<<<<<<<<<
  * 
  * 
  */
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = __Pyx_CallUnboundCMethod0(&__pyx_umethod_PyList_Type_tolist, __pyx_v_sequence); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 159, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_1);
-  if (!(likely(PyList_CheckExact(__pyx_t_1))||((__pyx_t_1) == Py_None) || __Pyx_RaiseUnexpectedTypeError("list", __pyx_t_1))) __PYX_ERR(0, 159, __pyx_L1_error)
-  __pyx_r = ((PyObject*)__pyx_t_1);
-  __pyx_t_1 = 0;
+  __Pyx_INCREF(__pyx_v_sequence);
+  __pyx_r = __pyx_v_sequence;
   goto __pyx_L0;
 
-  /* "functions.pyx":142
+  /* "functions.pyx":147
  *     return (5.1 + 5 * math.cos(x/3.8))
  * 
  * cpdef list generateSyntheticSequence(float start, float end, float interval):             # <<<<<<<<<<<<<<
@@ -3454,8 +3561,6 @@ static PyObject *__pyx_f_9functions_generateSyntheticSequence(float __pyx_v_star
   /* function exit code */
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_XDECREF(__pyx_t_5);
-  __Pyx_XDECREF(__pyx_t_6);
   __Pyx_AddTraceback("functions.generateSyntheticSequence", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = 0;
   __pyx_L0:;
@@ -3513,26 +3618,26 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       switch (__pyx_nargs) {
         case  0:
         if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_start)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 147, __pyx_L3_error)
         else goto __pyx_L5_argtuple_error;
         CYTHON_FALLTHROUGH;
         case  1:
         if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_end)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 147, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("generateSyntheticSequence", 1, 3, 3, 1); __PYX_ERR(0, 142, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("generateSyntheticSequence", 1, 3, 3, 1); __PYX_ERR(0, 147, __pyx_L3_error)
         }
         CYTHON_FALLTHROUGH;
         case  2:
         if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_interval)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 147, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("generateSyntheticSequence", 1, 3, 3, 2); __PYX_ERR(0, 142, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("generateSyntheticSequence", 1, 3, 3, 2); __PYX_ERR(0, 147, __pyx_L3_error)
         }
       }
       if (unlikely(kw_args > 0)) {
         const Py_ssize_t kwd_pos_args = __pyx_nargs;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "generateSyntheticSequence") < 0)) __PYX_ERR(0, 142, __pyx_L3_error)
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "generateSyntheticSequence") < 0)) __PYX_ERR(0, 147, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs != 3)) {
       goto __pyx_L5_argtuple_error;
@@ -3541,13 +3646,13 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
       values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
     }
-    __pyx_v_start = __pyx_PyFloat_AsFloat(values[0]); if (unlikely((__pyx_v_start == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L3_error)
-    __pyx_v_end = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_end == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L3_error)
-    __pyx_v_interval = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_interval == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L3_error)
+    __pyx_v_start = __pyx_PyFloat_AsFloat(values[0]); if (unlikely((__pyx_v_start == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 147, __pyx_L3_error)
+    __pyx_v_end = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_end == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 147, __pyx_L3_error)
+    __pyx_v_interval = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_interval == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 147, __pyx_L3_error)
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("generateSyntheticSequence", 1, 3, 3, __pyx_nargs); __PYX_ERR(0, 142, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("generateSyntheticSequence", 1, 3, 3, __pyx_nargs); __PYX_ERR(0, 147, __pyx_L3_error)
   __pyx_L3_error:;
   __Pyx_AddTraceback("functions.generateSyntheticSequence", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __Pyx_RefNannyFinishContext();
@@ -3569,7 +3674,7 @@ static PyObject *__pyx_pf_9functions_2generateSyntheticSequence(CYTHON_UNUSED Py
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("generateSyntheticSequence", 0);
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = __pyx_f_9functions_generateSyntheticSequence(__pyx_v_start, __pyx_v_end, __pyx_v_interval, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 142, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_9functions_generateSyntheticSequence(__pyx_v_start, __pyx_v_end, __pyx_v_interval, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 147, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -3586,22 +3691,22 @@ static PyObject *__pyx_pf_9functions_2generateSyntheticSequence(CYTHON_UNUSED Py
   return __pyx_r;
 }
 
-/* "functions.pyx":162
+/* "functions.pyx":163
  * 
  * 
- * cpdef tuple[list, float] optimalSol(list vals, float beta):             # <<<<<<<<<<<<<<
+ * cpdef tuple[list, float] optimalSolution(list vals, float beta):             # <<<<<<<<<<<<<<
  *     cdef int n, dim, i
  *     cdef list c, A, b, row, all_bounds
  */
 
-static PyObject *__pyx_pw_9functions_5optimalSol(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_9functions_5optimalSolution(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
+static PyObject *__pyx_f_9functions_optimalSolution(PyObject *__pyx_v_vals, float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
   int __pyx_v_n;
   int __pyx_v_dim;
   int __pyx_v_i;
@@ -3635,10 +3740,10 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("optimalSol", 0);
+  __Pyx_RefNannySetupContext("optimalSolution", 0);
 
   /* "functions.pyx":167
- *     cdef float val
+ *     cdef list c, A, b, row, all_bounds
  * 
  *     n = len(vals)             # <<<<<<<<<<<<<<
  *     dim = 2*n + 1
@@ -3834,8 +3939,8 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
  * 
  *     # append subsequent rows (switching cost constraint)
  *     row = [0 for i in range(0, dim)]             # <<<<<<<<<<<<<<
- *     row[i] = 1
- *     row[i+n] = -1
+ *     row[0] = 1
+ *     row[n] = -1
  */
   { /* enter inner scope */
     __pyx_t_2 = PyList_New(0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 190, __pyx_L1_error)
@@ -3853,25 +3958,24 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
   /* "functions.pyx":191
  *     # append subsequent rows (switching cost constraint)
  *     row = [0 for i in range(0, dim)]
- *     row[i] = 1             # <<<<<<<<<<<<<<
- *     row[i+n] = -1
+ *     row[0] = 1             # <<<<<<<<<<<<<<
+ *     row[n] = -1
  *     A.append(row)
  */
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_row, __pyx_v_i, __pyx_int_1, int, 1, __Pyx_PyInt_From_int, 1, 1, 1) < 0))) __PYX_ERR(0, 191, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_row, 0, __pyx_int_1, long, 1, __Pyx_PyInt_From_long, 1, 0, 1) < 0))) __PYX_ERR(0, 191, __pyx_L1_error)
 
   /* "functions.pyx":192
  *     row = [0 for i in range(0, dim)]
- *     row[i] = 1
- *     row[i+n] = -1             # <<<<<<<<<<<<<<
+ *     row[0] = 1
+ *     row[n] = -1             # <<<<<<<<<<<<<<
  *     A.append(row)
  *     b.append(0)
  */
-  __pyx_t_3 = (__pyx_v_i + __pyx_v_n);
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_row, __pyx_t_3, __pyx_int_neg_1, int, 1, __Pyx_PyInt_From_int, 1, 1, 1) < 0))) __PYX_ERR(0, 192, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_row, __pyx_v_n, __pyx_int_neg_1, int, 1, __Pyx_PyInt_From_int, 1, 1, 1) < 0))) __PYX_ERR(0, 192, __pyx_L1_error)
 
   /* "functions.pyx":193
- *     row[i] = 1
- *     row[i+n] = -1
+ *     row[0] = 1
+ *     row[n] = -1
  *     A.append(row)             # <<<<<<<<<<<<<<
  *     b.append(0)
  *     for i in range(0, n):
@@ -3879,7 +3983,7 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
   __pyx_t_6 = __Pyx_PyList_Append(__pyx_v_A, __pyx_v_row); if (unlikely(__pyx_t_6 == ((int)-1))) __PYX_ERR(0, 193, __pyx_L1_error)
 
   /* "functions.pyx":194
- *     row[i+n] = -1
+ *     row[n] = -1
  *     A.append(row)
  *     b.append(0)             # <<<<<<<<<<<<<<
  *     for i in range(0, n):
@@ -3924,7 +4028,7 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
  *         row = [0 for i in range(0, dim)]
  *         row[i] = -1             # <<<<<<<<<<<<<<
  *         row[i+1] = 1
- *         row[i+n] = -1
+ *         row[i+n+1] = -1
  */
     if (unlikely((__Pyx_SetItemInt(__pyx_v_row, __pyx_v_i, __pyx_int_neg_1, int, 1, __Pyx_PyInt_From_int, 1, 1, 1) < 0))) __PYX_ERR(0, 197, __pyx_L1_error)
 
@@ -3932,7 +4036,7 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
  *         row = [0 for i in range(0, dim)]
  *         row[i] = -1
  *         row[i+1] = 1             # <<<<<<<<<<<<<<
- *         row[i+n] = -1
+ *         row[i+n+1] = -1
  *         A.append(row.copy())
  */
     __pyx_t_7 = (__pyx_v_i + 1);
@@ -3941,16 +4045,16 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
     /* "functions.pyx":199
  *         row[i] = -1
  *         row[i+1] = 1
- *         row[i+n] = -1             # <<<<<<<<<<<<<<
+ *         row[i+n+1] = -1             # <<<<<<<<<<<<<<
  *         A.append(row.copy())
  *         b.append(0)
  */
-    __pyx_t_9 = (__pyx_v_i + __pyx_v_n);
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_row, __pyx_t_9, __pyx_int_neg_1, int, 1, __Pyx_PyInt_From_int, 1, 1, 1) < 0))) __PYX_ERR(0, 199, __pyx_L1_error)
+    __pyx_t_7 = ((__pyx_v_i + __pyx_v_n) + 1);
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_row, __pyx_t_7, __pyx_int_neg_1, long, 1, __Pyx_PyInt_From_long, 1, 1, 1) < 0))) __PYX_ERR(0, 199, __pyx_L1_error)
 
     /* "functions.pyx":200
  *         row[i+1] = 1
- *         row[i+n] = -1
+ *         row[i+n+1] = -1
  *         A.append(row.copy())             # <<<<<<<<<<<<<<
  *         b.append(0)
  * 
@@ -3961,7 +4065,7 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
     /* "functions.pyx":201
- *         row[i+n] = -1
+ *         row[i+n+1] = -1
  *         A.append(row.copy())
  *         b.append(0)             # <<<<<<<<<<<<<<
  * 
@@ -4063,69 +4167,47 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
  *     A.append(row)
  *     b.append(0)             # <<<<<<<<<<<<<<
  * 
- *     print(A)
+ *     results = linprog(c=c, A_ub=A, b_ub=b, bounds=all_bounds, method='highs-ds')
  */
   __pyx_t_6 = __Pyx_PyList_Append(__pyx_v_b, __pyx_int_0); if (unlikely(__pyx_t_6 == ((int)-1))) __PYX_ERR(0, 211, __pyx_L1_error)
 
   /* "functions.pyx":213
  *     b.append(0)
  * 
- *     print(A)             # <<<<<<<<<<<<<<
- *     print(b)
- * 
- */
-  __pyx_t_2 = __Pyx_PyObject_CallOneArg(__pyx_builtin_print, __pyx_v_A); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 213, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_2);
-  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-
-  /* "functions.pyx":214
- * 
- *     print(A)
- *     print(b)             # <<<<<<<<<<<<<<
- * 
- *     results = linprog(c=c, A_ub=A, b_ub=b, bounds=all_bounds, method='highs-ds')
- */
-  __pyx_t_2 = __Pyx_PyObject_CallOneArg(__pyx_builtin_print, __pyx_v_b); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 214, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_2);
-  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-
-  /* "functions.pyx":216
- *     print(b)
- * 
  *     results = linprog(c=c, A_ub=A, b_ub=b, bounds=all_bounds, method='highs-ds')             # <<<<<<<<<<<<<<
  * 
  *     # print results
  */
-  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_n_s_linprog); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 216, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_n_s_linprog); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 213, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_12 = __Pyx_PyDict_NewPresized(5); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 216, __pyx_L1_error)
+  __pyx_t_12 = __Pyx_PyDict_NewPresized(5); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 213, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_12);
-  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_c, __pyx_v_c) < 0) __PYX_ERR(0, 216, __pyx_L1_error)
-  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_A_ub, __pyx_v_A) < 0) __PYX_ERR(0, 216, __pyx_L1_error)
-  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_b_ub, __pyx_v_b) < 0) __PYX_ERR(0, 216, __pyx_L1_error)
-  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_bounds, __pyx_v_all_bounds) < 0) __PYX_ERR(0, 216, __pyx_L1_error)
-  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_method, __pyx_kp_u_highs_ds) < 0) __PYX_ERR(0, 216, __pyx_L1_error)
-  __pyx_t_13 = __Pyx_PyObject_Call(__pyx_t_2, __pyx_empty_tuple, __pyx_t_12); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 216, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_c, __pyx_v_c) < 0) __PYX_ERR(0, 213, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_A_ub, __pyx_v_A) < 0) __PYX_ERR(0, 213, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_b_ub, __pyx_v_b) < 0) __PYX_ERR(0, 213, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_bounds, __pyx_v_all_bounds) < 0) __PYX_ERR(0, 213, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_t_12, __pyx_n_s_method, __pyx_kp_u_highs_ds) < 0) __PYX_ERR(0, 213, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_PyObject_Call(__pyx_t_2, __pyx_empty_tuple, __pyx_t_12); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 213, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
   __pyx_v_results = __pyx_t_13;
   __pyx_t_13 = 0;
 
-  /* "functions.pyx":224
+  /* "functions.pyx":221
  * 
  *     # return optimal variable settings + cost
  *     if results.status == 0:             # <<<<<<<<<<<<<<
  *         return results.x, results.fun
  *     else:
  */
-  __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_v_results, __pyx_n_s_status); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 224, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_v_results, __pyx_n_s_status); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 221, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
-  __pyx_t_14 = (__Pyx_PyInt_BoolEqObjC(__pyx_t_13, __pyx_int_0, 0, 0)); if (unlikely((__pyx_t_14 < 0))) __PYX_ERR(0, 224, __pyx_L1_error)
+  __pyx_t_14 = (__Pyx_PyInt_BoolEqObjC(__pyx_t_13, __pyx_int_0, 0, 0)); if (unlikely((__pyx_t_14 < 0))) __PYX_ERR(0, 221, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
   if (__pyx_t_14) {
 
-    /* "functions.pyx":225
+    /* "functions.pyx":222
  *     # return optimal variable settings + cost
  *     if results.status == 0:
  *         return results.x, results.fun             # <<<<<<<<<<<<<<
@@ -4133,11 +4215,11 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
  *         print("Error: no optimal solution found.")
  */
     __Pyx_XDECREF(__pyx_r);
-    __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_v_results, __pyx_n_s_x); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 225, __pyx_L1_error)
+    __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_v_results, __pyx_n_s_x); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 222, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_13);
-    __pyx_t_12 = __Pyx_PyObject_GetAttrStr(__pyx_v_results, __pyx_n_s_fun); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 225, __pyx_L1_error)
+    __pyx_t_12 = __Pyx_PyObject_GetAttrStr(__pyx_v_results, __pyx_n_s_fun); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 222, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_12);
-    __pyx_t_2 = PyTuple_New(2); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 225, __pyx_L1_error)
+    __pyx_t_2 = PyTuple_New(2); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 222, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
     __Pyx_GIVEREF(__pyx_t_13);
     PyTuple_SET_ITEM(__pyx_t_2, 0, __pyx_t_13);
@@ -4149,7 +4231,7 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
     __pyx_t_2 = 0;
     goto __pyx_L0;
 
-    /* "functions.pyx":224
+    /* "functions.pyx":221
  * 
  *     # return optimal variable settings + cost
  *     if results.status == 0:             # <<<<<<<<<<<<<<
@@ -4158,31 +4240,34 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
  */
   }
 
-  /* "functions.pyx":227
+  /* "functions.pyx":224
  *         return results.x, results.fun
  *     else:
  *         print("Error: no optimal solution found.")             # <<<<<<<<<<<<<<
  *         return [], math.inf
+ * 
  */
   /*else*/ {
-    __pyx_t_2 = __Pyx_PyObject_Call(__pyx_builtin_print, __pyx_tuple__2, NULL); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 227, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_PyObject_Call(__pyx_builtin_print, __pyx_tuple__2, NULL); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 224, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-    /* "functions.pyx":228
+    /* "functions.pyx":225
  *     else:
  *         print("Error: no optimal solution found.")
  *         return [], math.inf             # <<<<<<<<<<<<<<
+ * 
+ * 
  */
     __Pyx_XDECREF(__pyx_r);
-    __pyx_t_2 = PyList_New(0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 228, __pyx_L1_error)
+    __pyx_t_2 = PyList_New(0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 225, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
-    __Pyx_GetModuleGlobalName(__pyx_t_12, __pyx_n_s_math); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 228, __pyx_L1_error)
+    __Pyx_GetModuleGlobalName(__pyx_t_12, __pyx_n_s_math); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 225, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_12);
-    __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_t_12, __pyx_n_s_inf); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 228, __pyx_L1_error)
+    __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_t_12, __pyx_n_s_inf); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 225, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_13);
     __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
-    __pyx_t_12 = PyTuple_New(2); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 228, __pyx_L1_error)
+    __pyx_t_12 = PyTuple_New(2); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 225, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_12);
     __Pyx_GIVEREF(__pyx_t_2);
     PyTuple_SET_ITEM(__pyx_t_12, 0, __pyx_t_2);
@@ -4195,10 +4280,10 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
     goto __pyx_L0;
   }
 
-  /* "functions.pyx":162
+  /* "functions.pyx":163
  * 
  * 
- * cpdef tuple[list, float] optimalSol(list vals, float beta):             # <<<<<<<<<<<<<<
+ * cpdef tuple[list, float] optimalSolution(list vals, float beta):             # <<<<<<<<<<<<<<
  *     cdef int n, dim, i
  *     cdef list c, A, b, row, all_bounds
  */
@@ -4208,7 +4293,7 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
   __Pyx_XDECREF(__pyx_t_2);
   __Pyx_XDECREF(__pyx_t_12);
   __Pyx_XDECREF(__pyx_t_13);
-  __Pyx_AddTraceback("functions.optimalSol", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_AddTraceback("functions.optimalSolution", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = 0;
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_c);
@@ -4223,15 +4308,15 @@ static PyObject *__pyx_f_9functions_optimalSol(PyObject *__pyx_v_vals, float __p
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_9functions_5optimalSol(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_9functions_5optimalSolution(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-static PyMethodDef __pyx_mdef_9functions_5optimalSol = {"optimalSol", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_5optimalSol, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_9functions_5optimalSol(PyObject *__pyx_self, 
+static PyMethodDef __pyx_mdef_9functions_5optimalSolution = {"optimalSolution", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_5optimalSolution, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_9functions_5optimalSolution(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -4249,7 +4334,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   int __pyx_clineno = 0;
   PyObject *__pyx_r = 0;
   __Pyx_RefNannyDeclarations
-  __Pyx_RefNannySetupContext("optimalSol (wrapper)", 0);
+  __Pyx_RefNannySetupContext("optimalSolution (wrapper)", 0);
   {
     PyObject **__pyx_pyargnames[] = {&__pyx_n_s_vals,&__pyx_n_s_beta,0};
     PyObject* values[2] = {0,0};
@@ -4267,19 +4352,19 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       switch (__pyx_nargs) {
         case  0:
         if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_vals)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 162, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 163, __pyx_L3_error)
         else goto __pyx_L5_argtuple_error;
         CYTHON_FALLTHROUGH;
         case  1:
         if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
-        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 162, __pyx_L3_error)
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 163, __pyx_L3_error)
         else {
-          __Pyx_RaiseArgtupleInvalid("optimalSol", 1, 2, 2, 1); __PYX_ERR(0, 162, __pyx_L3_error)
+          __Pyx_RaiseArgtupleInvalid("optimalSolution", 1, 2, 2, 1); __PYX_ERR(0, 163, __pyx_L3_error)
         }
       }
       if (unlikely(kw_args > 0)) {
         const Py_ssize_t kwd_pos_args = __pyx_nargs;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "optimalSol") < 0)) __PYX_ERR(0, 162, __pyx_L3_error)
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "optimalSolution") < 0)) __PYX_ERR(0, 163, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs != 2)) {
       goto __pyx_L5_argtuple_error;
@@ -4288,18 +4373,18 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
     }
     __pyx_v_vals = ((PyObject*)values[0]);
-    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 162, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 163, __pyx_L3_error)
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("optimalSol", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 162, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("optimalSolution", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 163, __pyx_L3_error)
   __pyx_L3_error:;
-  __Pyx_AddTraceback("functions.optimalSol", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_AddTraceback("functions.optimalSolution", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_vals), (&PyList_Type), 1, "vals", 1))) __PYX_ERR(0, 162, __pyx_L1_error)
-  __pyx_r = __pyx_pf_9functions_4optimalSol(__pyx_self, __pyx_v_vals, __pyx_v_beta);
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_vals), (&PyList_Type), 1, "vals", 1))) __PYX_ERR(0, 163, __pyx_L1_error)
+  __pyx_r = __pyx_pf_9functions_4optimalSolution(__pyx_self, __pyx_v_vals, __pyx_v_beta);
 
   /* function exit code */
   goto __pyx_L0;
@@ -4310,16 +4395,16 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_9functions_4optimalSol(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_beta) {
+static PyObject *__pyx_pf_9functions_4optimalSolution(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_beta) {
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("optimalSol", 0);
+  __Pyx_RefNannySetupContext("optimalSolution", 0);
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = __pyx_f_9functions_optimalSol(__pyx_v_vals, __pyx_v_beta, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 162, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_9functions_optimalSolution(__pyx_v_vals, __pyx_v_beta, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 163, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -4328,7 +4413,2537 @@ static PyObject *__pyx_pf_9functions_4optimalSol(CYTHON_UNUSED PyObject *__pyx_s
   /* function exit code */
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("functions.optimalSol", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_AddTraceback("functions.optimalSolution", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "functions.pyx":233
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+
+static PyObject *__pyx_pw_9functions_7owtOnline(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyObject *__pyx_f_9functions_owtOnline(PyObject *__pyx_v_vals, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
+  int __pyx_v_i;
+  PyObject *__pyx_v_sol = 0;
+  float __pyx_v_cost;
+  float __pyx_v_val;
+  float __pyx_v_alpha;
+  float __pyx_v_accepted;
+  double __pyx_v_remainder;
+  float __pyx_v_amount;
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  PyObject *__pyx_t_2 = NULL;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  int __pyx_t_6;
+  float __pyx_t_7;
+  Py_ssize_t __pyx_t_8;
+  int __pyx_t_9;
+  int __pyx_t_10;
+  Py_ssize_t __pyx_t_11;
+  PyObject *__pyx_t_12 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("owtOnline", 0);
+
+  /* "functions.pyx":238
+ *     cdef float cost, val, alpha, accepted
+ * 
+ *     sol = []             # <<<<<<<<<<<<<<
+ *     accepted = 0
+ *     cost = 0
+ */
+  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 238, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_v_sol = ((PyObject*)__pyx_t_1);
+  __pyx_t_1 = 0;
+
+  /* "functions.pyx":239
+ * 
+ *     sol = []
+ *     accepted = 0             # <<<<<<<<<<<<<<
+ *     cost = 0
+ *     L = 0.000001
+ */
+  __pyx_v_accepted = 0.0;
+
+  /* "functions.pyx":240
+ *     sol = []
+ *     accepted = 0
+ *     cost = 0             # <<<<<<<<<<<<<<
+ *     L = 0.000001
+ *     U = 30
+ */
+  __pyx_v_cost = 0.0;
+
+  /* "functions.pyx":241
+ *     accepted = 0
+ *     cost = 0
+ *     L = 0.000001             # <<<<<<<<<<<<<<
+ *     U = 30
+ * 
+ */
+  __pyx_v_L = 0.000001;
+
+  /* "functions.pyx":242
+ *     cost = 0
+ *     L = 0.000001
+ *     U = 30             # <<<<<<<<<<<<<<
+ * 
+ *     # get value for alpha
+ */
+  __pyx_v_U = 30.0;
+
+  /* "functions.pyx":245
+ * 
+ *     # get value for alpha
+ *     alpha = 1 / (1 + lambertw( ( (L/U) - 1 ) / math.e ) )             # <<<<<<<<<<<<<<
+ * 
+ *     #simulate behavior of online algorithm using a for loop
+ */
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_n_s_lambertw); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  if (unlikely(__pyx_v_U == 0)) {
+    PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+    __PYX_ERR(0, 245, __pyx_L1_error)
+  }
+  __pyx_t_3 = PyFloat_FromDouble(((__pyx_v_L / __pyx_v_U) - 1.0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_n_s_math); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_n_s_e); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+  __pyx_t_4 = __Pyx_PyNumber_Divide(__pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  __pyx_t_5 = NULL;
+  __pyx_t_6 = 0;
+  if (CYTHON_UNPACK_METHODS && unlikely(PyMethod_Check(__pyx_t_2))) {
+    __pyx_t_5 = PyMethod_GET_SELF(__pyx_t_2);
+    if (likely(__pyx_t_5)) {
+      PyObject* function = PyMethod_GET_FUNCTION(__pyx_t_2);
+      __Pyx_INCREF(__pyx_t_5);
+      __Pyx_INCREF(function);
+      __Pyx_DECREF_SET(__pyx_t_2, function);
+      __pyx_t_6 = 1;
+    }
+  }
+  {
+    PyObject *__pyx_callargs[2] = {__pyx_t_5, __pyx_t_4};
+    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_2, __pyx_callargs+1-__pyx_t_6, 1+__pyx_t_6);
+    __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 245, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_1);
+    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  }
+  __pyx_t_2 = __Pyx_PyInt_AddCObj(__pyx_int_1, __pyx_t_1, 1, 0, 0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __pyx_t_1 = __Pyx_PyNumber_Divide(__pyx_int_1, __pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 245, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __pyx_v_alpha = __pyx_t_7;
+
+  /* "functions.pyx":248
+ * 
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):             # <<<<<<<<<<<<<<
+ *         if accepted >= 1:
+ *             sol.append(0)
+ */
+  __pyx_t_6 = 0;
+  __pyx_t_1 = __pyx_v_vals; __Pyx_INCREF(__pyx_t_1); __pyx_t_8 = 0;
+  for (;;) {
+    if (__pyx_t_8 >= PyList_GET_SIZE(__pyx_t_1)) break;
+    #if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS
+    __pyx_t_2 = PyList_GET_ITEM(__pyx_t_1, __pyx_t_8); __Pyx_INCREF(__pyx_t_2); __pyx_t_8++; if (unlikely((0 < 0))) __PYX_ERR(0, 248, __pyx_L1_error)
+    #else
+    __pyx_t_2 = PySequence_ITEM(__pyx_t_1, __pyx_t_8); __pyx_t_8++; if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 248, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_2);
+    #endif
+    __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_2); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 248, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+    __pyx_v_val = __pyx_t_7;
+    __pyx_v_i = __pyx_t_6;
+    __pyx_t_6 = (__pyx_t_6 + 1);
+
+    /* "functions.pyx":249
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             sol.append(0)
+ *             continue
+ */
+    __pyx_t_9 = (__pyx_v_accepted >= 1.0);
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":250
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= 1:
+ *             sol.append(0)             # <<<<<<<<<<<<<<
+ *             continue
+ * 
+ */
+      __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_int_0); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 250, __pyx_L1_error)
+
+      /* "functions.pyx":251
+ *         if accepted >= 1:
+ *             sol.append(0)
+ *             continue             # <<<<<<<<<<<<<<
+ * 
+ *         if i == len(vals) - 1: # must accept last price
+ */
+      goto __pyx_L3_continue;
+
+      /* "functions.pyx":249
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             sol.append(0)
+ *             continue
+ */
+    }
+
+    /* "functions.pyx":253
+ *             continue
+ * 
+ *         if i == len(vals) - 1: # must accept last price             # <<<<<<<<<<<<<<
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost
+ */
+    if (unlikely(__pyx_v_vals == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+      __PYX_ERR(0, 253, __pyx_L1_error)
+    }
+    __pyx_t_11 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_11 == ((Py_ssize_t)-1))) __PYX_ERR(0, 253, __pyx_L1_error)
+    __pyx_t_9 = (__pyx_v_i == (__pyx_t_11 - 1));
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":254
+ * 
+ *         if i == len(vals) - 1: # must accept last price
+ *             remainder = 1.0 - accepted             # <<<<<<<<<<<<<<
+ *             cost += val * remainder # hitting cost
+ *             cost += (beta * abs(remainder - sol[-1]))
+ */
+      __pyx_v_remainder = (1.0 - __pyx_v_accepted);
+
+      /* "functions.pyx":255
+ *         if i == len(vals) - 1: # must accept last price
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(remainder - sol[-1]))
+ *             sol.append(remainder)
+ */
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_val * __pyx_v_remainder));
+
+      /* "functions.pyx":256
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost
+ *             cost += (beta * abs(remainder - sol[-1]))             # <<<<<<<<<<<<<<
+ *             sol.append(remainder)
+ *             accepted += remainder
+ */
+      __pyx_t_2 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_2);
+      __pyx_t_4 = PyFloat_FromDouble(__pyx_v_beta); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __pyx_t_5 = PyFloat_FromDouble(__pyx_v_remainder); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __pyx_t_3 = __Pyx_GetItemInt_List(__pyx_v_sol, -1L, long, 1, __Pyx_PyInt_From_long, 1, 1, 1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_12 = PyNumber_Subtract(__pyx_t_5, __pyx_t_3); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_12);
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_t_3 = __Pyx_PyNumber_Absolute(__pyx_t_12); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __pyx_t_12 = PyNumber_Multiply(__pyx_t_4, __pyx_t_3); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_12);
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_t_3 = PyNumber_InPlaceAdd(__pyx_t_2, __pyx_t_12); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+      __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_3); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 256, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_v_cost = __pyx_t_7;
+
+      /* "functions.pyx":257
+ *             cost += val * remainder # hitting cost
+ *             cost += (beta * abs(remainder - sol[-1]))
+ *             sol.append(remainder)             # <<<<<<<<<<<<<<
+ *             accepted += remainder
+ *             break
+ */
+      __pyx_t_3 = PyFloat_FromDouble(__pyx_v_remainder); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 257, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_t_3); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 257, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+      /* "functions.pyx":258
+ *             cost += (beta * abs(remainder - sol[-1]))
+ *             sol.append(remainder)
+ *             accepted += remainder             # <<<<<<<<<<<<<<
+ *             break
+ * 
+ */
+      __pyx_v_accepted = (__pyx_v_accepted + __pyx_v_remainder);
+
+      /* "functions.pyx":259
+ *             sol.append(remainder)
+ *             accepted += remainder
+ *             break             # <<<<<<<<<<<<<<
+ * 
+ *         # solve for threshold-defined amount
+ */
+      goto __pyx_L4_break;
+
+      /* "functions.pyx":253
+ *             continue
+ * 
+ *         if i == len(vals) - 1: # must accept last price             # <<<<<<<<<<<<<<
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost
+ */
+    }
+
+    /* "functions.pyx":262
+ * 
+ *         # solve for threshold-defined amount
+ *         amount = owtHelper(val, accepted, alpha, L, U, beta)             # <<<<<<<<<<<<<<
+ *         accepted += amount
+ *         cost += val * amount
+ */
+    __pyx_t_7 = __pyx_f_9functions_owtHelper(__pyx_v_val, __pyx_v_accepted, __pyx_v_alpha, __pyx_v_L, __pyx_v_U, __pyx_v_beta, 0); if (unlikely(__pyx_t_7 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 262, __pyx_L1_error)
+    __pyx_v_amount = __pyx_t_7;
+
+    /* "functions.pyx":263
+ *         # solve for threshold-defined amount
+ *         amount = owtHelper(val, accepted, alpha, L, U, beta)
+ *         accepted += amount             # <<<<<<<<<<<<<<
+ *         cost += val * amount
+ *         if i == 0:
+ */
+    __pyx_v_accepted = (__pyx_v_accepted + __pyx_v_amount);
+
+    /* "functions.pyx":264
+ *         amount = owtHelper(val, accepted, alpha, L, U, beta)
+ *         accepted += amount
+ *         cost += val * amount             # <<<<<<<<<<<<<<
+ *         if i == 0:
+ *             cost += (beta * abs(amount - 0))
+ */
+    __pyx_v_cost = (__pyx_v_cost + (__pyx_v_val * __pyx_v_amount));
+
+    /* "functions.pyx":265
+ *         accepted += amount
+ *         cost += val * amount
+ *         if i == 0:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(amount - 0))
+ *         else:
+ */
+    __pyx_t_9 = (__pyx_v_i == 0);
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":266
+ *         cost += val * amount
+ *         if i == 0:
+ *             cost += (beta * abs(amount - 0))             # <<<<<<<<<<<<<<
+ *         else:
+ *             cost += (beta * abs(amount - sol[-1]))
+ */
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_beta * fabsf((__pyx_v_amount - 0.0))));
+
+      /* "functions.pyx":265
+ *         accepted += amount
+ *         cost += val * amount
+ *         if i == 0:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(amount - 0))
+ *         else:
+ */
+      goto __pyx_L7;
+    }
+
+    /* "functions.pyx":268
+ *             cost += (beta * abs(amount - 0))
+ *         else:
+ *             cost += (beta * abs(amount - sol[-1]))             # <<<<<<<<<<<<<<
+ *         sol.append(amount)
+ *         if accepted >= 1:
+ */
+    /*else*/ {
+      __pyx_t_3 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_12 = PyFloat_FromDouble(__pyx_v_beta); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_12);
+      __pyx_t_2 = PyFloat_FromDouble(__pyx_v_amount); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_2);
+      __pyx_t_4 = __Pyx_GetItemInt_List(__pyx_v_sol, -1L, long, 1, __Pyx_PyInt_From_long, 1, 1, 1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __pyx_t_5 = PyNumber_Subtract(__pyx_t_2, __pyx_t_4); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __pyx_t_4 = __Pyx_PyNumber_Absolute(__pyx_t_5); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __pyx_t_5 = PyNumber_Multiply(__pyx_t_12, __pyx_t_4); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __pyx_t_4 = PyNumber_InPlaceAdd(__pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_4); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 268, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __pyx_v_cost = __pyx_t_7;
+    }
+    __pyx_L7:;
+
+    /* "functions.pyx":269
+ *         else:
+ *             cost += (beta * abs(amount - sol[-1]))
+ *         sol.append(amount)             # <<<<<<<<<<<<<<
+ *         if accepted >= 1:
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ */
+    __pyx_t_4 = PyFloat_FromDouble(__pyx_v_amount); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 269, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_4);
+    __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_t_4); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 269, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+    /* "functions.pyx":270
+ *             cost += (beta * abs(amount - sol[-1]))
+ *         sol.append(amount)
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ *             continue
+ */
+    __pyx_t_9 = (__pyx_v_accepted >= 1.0);
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":271
+ *         sol.append(amount)
+ *         if accepted >= 1:
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off             # <<<<<<<<<<<<<<
+ *             continue
+ * 
+ */
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_beta * fabsf((0.0 - __pyx_v_amount))));
+
+      /* "functions.pyx":272
+ *         if accepted >= 1:
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ *             continue             # <<<<<<<<<<<<<<
+ * 
+ *     return sol, cost
+ */
+      goto __pyx_L3_continue;
+
+      /* "functions.pyx":270
+ *             cost += (beta * abs(amount - sol[-1]))
+ *         sol.append(amount)
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ *             continue
+ */
+    }
+
+    /* "functions.pyx":248
+ * 
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):             # <<<<<<<<<<<<<<
+ *         if accepted >= 1:
+ *             sol.append(0)
+ */
+    __pyx_L3_continue:;
+  }
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  goto __pyx_L9_for_end;
+  __pyx_L4_break:;
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  goto __pyx_L9_for_end;
+  __pyx_L9_for_end:;
+
+  /* "functions.pyx":274
+ *             continue
+ * 
+ *     return sol, cost             # <<<<<<<<<<<<<<
+ * 
+ * # helper for one-way trading algorithm
+ */
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 274, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_t_4 = PyTuple_New(2); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 274, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __Pyx_INCREF(__pyx_v_sol);
+  __Pyx_GIVEREF(__pyx_v_sol);
+  PyTuple_SET_ITEM(__pyx_t_4, 0, __pyx_v_sol);
+  __Pyx_GIVEREF(__pyx_t_1);
+  PyTuple_SET_ITEM(__pyx_t_4, 1, __pyx_t_1);
+  __pyx_t_1 = 0;
+  __pyx_r = ((PyObject*)__pyx_t_4);
+  __pyx_t_4 = 0;
+  goto __pyx_L0;
+
+  /* "functions.pyx":233
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_XDECREF(__pyx_t_3);
+  __Pyx_XDECREF(__pyx_t_4);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_XDECREF(__pyx_t_12);
+  __Pyx_AddTraceback("functions.owtOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = 0;
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_sol);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* Python wrapper */
+static PyObject *__pyx_pw_9functions_7owtOnline(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_9functions_7owtOnline = {"owtOnline", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_7owtOnline, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_9functions_7owtOnline(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  PyObject *__pyx_v_vals = 0;
+  float __pyx_v_U;
+  float __pyx_v_L;
+  float __pyx_v_beta;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED const Py_ssize_t __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("owtOnline (wrapper)", 0);
+  {
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_vals,&__pyx_n_s_U,&__pyx_n_s_L,&__pyx_n_s_beta,0};
+    PyObject* values[4] = {0,0,0,0};
+    if (__pyx_kwds) {
+      Py_ssize_t kw_args;
+      switch (__pyx_nargs) {
+        case  4: values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+        CYTHON_FALLTHROUGH;
+        case  3: values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+        CYTHON_FALLTHROUGH;
+        case  2: values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+        CYTHON_FALLTHROUGH;
+        case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_vals)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  1:
+        if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_U)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtOnline", 1, 4, 4, 1); __PYX_ERR(0, 233, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  2:
+        if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_L)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtOnline", 1, 4, 4, 2); __PYX_ERR(0, 233, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  3:
+        if (likely((values[3] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtOnline", 1, 4, 4, 3); __PYX_ERR(0, 233, __pyx_L3_error)
+        }
+      }
+      if (unlikely(kw_args > 0)) {
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "owtOnline") < 0)) __PYX_ERR(0, 233, __pyx_L3_error)
+      }
+    } else if (unlikely(__pyx_nargs != 4)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+      values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+      values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+      values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+    }
+    __pyx_v_vals = ((PyObject*)values[0]);
+    __pyx_v_U = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+    __pyx_v_L = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+  }
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("owtOnline", 1, 4, 4, __pyx_nargs); __PYX_ERR(0, 233, __pyx_L3_error)
+  __pyx_L3_error:;
+  __Pyx_AddTraceback("functions.owtOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_vals), (&PyList_Type), 1, "vals", 1))) __PYX_ERR(0, 233, __pyx_L1_error)
+  __pyx_r = __pyx_pf_9functions_6owtOnline(__pyx_self, __pyx_v_vals, __pyx_v_U, __pyx_v_L, __pyx_v_beta);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_9functions_6owtOnline(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("owtOnline", 0);
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = __pyx_f_9functions_owtOnline(__pyx_v_vals, __pyx_v_U, __pyx_v_L, __pyx_v_beta, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 233, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_r = __pyx_t_1;
+  __pyx_t_1 = 0;
+  goto __pyx_L0;
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_AddTraceback("functions.owtOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "functions.pyx":277
+ * 
+ * # helper for one-way trading algorithm
+ * cpdef float owtHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+
+static PyObject *__pyx_pw_9functions_9owtHelper(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static float __pyx_f_9functions_owtHelper(float __pyx_v_val, float __pyx_v_accepted, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, CYTHON_UNUSED float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
+  float __pyx_v_threshold;
+  float __pyx_v_target;
+  float __pyx_r;
+  __Pyx_RefNannyDeclarations
+  float __pyx_t_1;
+  int __pyx_t_2;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  PyObject *__pyx_t_6 = NULL;
+  PyObject *__pyx_t_7 = NULL;
+  PyObject *__pyx_t_8 = NULL;
+  PyObject *__pyx_t_9 = NULL;
+  PyObject *__pyx_t_10 = NULL;
+  PyObject *__pyx_t_11 = NULL;
+  PyObject *__pyx_t_12 = NULL;
+  PyObject *__pyx_t_13 = NULL;
+  int __pyx_t_14;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("owtHelper", 0);
+
+  /* "functions.pyx":280
+ *     cdef float threshold, target
+ * 
+ *     threshold = getThreshold(val, alpha, U, L, 0, accepted)             # <<<<<<<<<<<<<<
+ * 
+ *     if threshold >= 0:
+ */
+  __pyx_t_1 = __pyx_f_9functions_getThreshold(__pyx_v_val, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, 0.0, __pyx_v_accepted, 0); if (unlikely(__pyx_t_1 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 280, __pyx_L1_error)
+  __pyx_v_threshold = __pyx_t_1;
+
+  /* "functions.pyx":282
+ *     threshold = getThreshold(val, alpha, U, L, 0, accepted)
+ * 
+ *     if threshold >= 0:             # <<<<<<<<<<<<<<
+ *         try:
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+ */
+  __pyx_t_2 = (__pyx_v_threshold >= 0.0);
+  if (__pyx_t_2) {
+
+    /* "functions.pyx":283
+ * 
+ *     if threshold >= 0:
+ *         try:             # <<<<<<<<<<<<<<
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ */
+    {
+      __Pyx_PyThreadState_declare
+      __Pyx_PyThreadState_assign
+      __Pyx_ExceptionSave(&__pyx_t_3, &__pyx_t_4, &__pyx_t_5);
+      __Pyx_XGOTREF(__pyx_t_3);
+      __Pyx_XGOTREF(__pyx_t_4);
+      __Pyx_XGOTREF(__pyx_t_5);
+      /*try:*/ {
+
+        /* "functions.pyx":284
+ *     if threshold >= 0:
+ *         try:
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]             # <<<<<<<<<<<<<<
+ *         # solve for the amount
+ *         except:
+ */
+        __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_n_s_minimize); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_6);
+        __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_n_s_getThreshold); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_7);
+        __pyx_t_8 = PyFloat_FromDouble(__pyx_v_accepted); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __pyx_t_9 = PyTuple_New(2); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_9);
+        __Pyx_GIVEREF(__pyx_t_7);
+        PyTuple_SET_ITEM(__pyx_t_9, 0, __pyx_t_7);
+        __Pyx_GIVEREF(__pyx_t_8);
+        PyTuple_SET_ITEM(__pyx_t_9, 1, __pyx_t_8);
+        __pyx_t_7 = 0;
+        __pyx_t_8 = 0;
+        __pyx_t_8 = __Pyx_PyDict_NewPresized(2); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __pyx_t_7 = PyFloat_FromDouble(__pyx_v_val); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_7);
+        __pyx_t_10 = PyFloat_FromDouble(__pyx_v_alpha); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_10);
+        __pyx_t_11 = PyFloat_FromDouble(__pyx_v_U); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_11);
+        __pyx_t_12 = PyFloat_FromDouble(__pyx_v_L); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_12);
+        __pyx_t_13 = PyTuple_New(5); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __Pyx_GIVEREF(__pyx_t_7);
+        PyTuple_SET_ITEM(__pyx_t_13, 0, __pyx_t_7);
+        __Pyx_GIVEREF(__pyx_t_10);
+        PyTuple_SET_ITEM(__pyx_t_13, 1, __pyx_t_10);
+        __Pyx_GIVEREF(__pyx_t_11);
+        PyTuple_SET_ITEM(__pyx_t_13, 2, __pyx_t_11);
+        __Pyx_GIVEREF(__pyx_t_12);
+        PyTuple_SET_ITEM(__pyx_t_13, 3, __pyx_t_12);
+        __Pyx_INCREF(__pyx_int_0);
+        __Pyx_GIVEREF(__pyx_int_0);
+        PyTuple_SET_ITEM(__pyx_t_13, 4, __pyx_int_0);
+        __pyx_t_7 = 0;
+        __pyx_t_10 = 0;
+        __pyx_t_11 = 0;
+        __pyx_t_12 = 0;
+        if (PyDict_SetItem(__pyx_t_8, __pyx_n_s_args, __pyx_t_13) < 0) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
+        __pyx_t_13 = PyList_New(1); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __Pyx_INCREF(__pyx_tuple_);
+        __Pyx_GIVEREF(__pyx_tuple_);
+        PyList_SET_ITEM(__pyx_t_13, 0, __pyx_tuple_);
+        if (PyDict_SetItem(__pyx_t_8, __pyx_n_s_bounds, __pyx_t_13) < 0) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
+        __pyx_t_13 = __Pyx_PyObject_Call(__pyx_t_6, __pyx_t_9, __pyx_t_8); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+        __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
+        __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_13, __pyx_n_s_x); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
+        __pyx_t_13 = __Pyx_GetItemInt(__pyx_t_8, 0, long, 1, __Pyx_PyInt_From_long, 0, 0, 1); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __pyx_t_1 = __pyx_PyFloat_AsFloat(__pyx_t_13); if (unlikely((__pyx_t_1 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 284, __pyx_L4_error)
+        __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
+        __pyx_v_target = __pyx_t_1;
+
+        /* "functions.pyx":283
+ * 
+ *     if threshold >= 0:
+ *         try:             # <<<<<<<<<<<<<<
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ */
+      }
+
+      /* "functions.pyx":289
+ *             print("something went wrong here w_j={}".format(accepted))
+ *         else:
+ *             return (target - accepted)             # <<<<<<<<<<<<<<
+ *     else:
+ *         return 0
+ */
+      /*else:*/ {
+        __pyx_r = (__pyx_v_target - __pyx_v_accepted);
+        goto __pyx_L7_except_return;
+      }
+      __pyx_L4_error:;
+      __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
+      __Pyx_XDECREF(__pyx_t_11); __pyx_t_11 = 0;
+      __Pyx_XDECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __Pyx_XDECREF(__pyx_t_13); __pyx_t_13 = 0;
+      __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
+      __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
+      __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
+      __Pyx_XDECREF(__pyx_t_9); __pyx_t_9 = 0;
+
+      /* "functions.pyx":286
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ *         except:             # <<<<<<<<<<<<<<
+ *             print("something went wrong here w_j={}".format(accepted))
+ *         else:
+ */
+      /*except:*/ {
+        __Pyx_AddTraceback("functions.owtHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+        if (__Pyx_GetException(&__pyx_t_13, &__pyx_t_8, &__pyx_t_9) < 0) __PYX_ERR(0, 286, __pyx_L6_except_error)
+        __Pyx_XGOTREF(__pyx_t_13);
+        __Pyx_XGOTREF(__pyx_t_8);
+        __Pyx_XGOTREF(__pyx_t_9);
+
+        /* "functions.pyx":287
+ *         # solve for the amount
+ *         except:
+ *             print("something went wrong here w_j={}".format(accepted))             # <<<<<<<<<<<<<<
+ *         else:
+ *             return (target - accepted)
+ */
+        __pyx_t_12 = __Pyx_PyObject_GetAttrStr(__pyx_kp_u_something_went_wrong_here_w_j, __pyx_n_s_format); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 287, __pyx_L6_except_error)
+        __Pyx_GOTREF(__pyx_t_12);
+        __pyx_t_11 = PyFloat_FromDouble(__pyx_v_accepted); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 287, __pyx_L6_except_error)
+        __Pyx_GOTREF(__pyx_t_11);
+        __pyx_t_10 = NULL;
+        __pyx_t_14 = 0;
+        if (CYTHON_UNPACK_METHODS && likely(PyMethod_Check(__pyx_t_12))) {
+          __pyx_t_10 = PyMethod_GET_SELF(__pyx_t_12);
+          if (likely(__pyx_t_10)) {
+            PyObject* function = PyMethod_GET_FUNCTION(__pyx_t_12);
+            __Pyx_INCREF(__pyx_t_10);
+            __Pyx_INCREF(function);
+            __Pyx_DECREF_SET(__pyx_t_12, function);
+            __pyx_t_14 = 1;
+          }
+        }
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_10, __pyx_t_11};
+          __pyx_t_6 = __Pyx_PyObject_FastCall(__pyx_t_12, __pyx_callargs+1-__pyx_t_14, 1+__pyx_t_14);
+          __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
+          __Pyx_DECREF(__pyx_t_11); __pyx_t_11 = 0;
+          if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 287, __pyx_L6_except_error)
+          __Pyx_GOTREF(__pyx_t_6);
+          __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+        }
+        __pyx_t_12 = __Pyx_PyObject_CallOneArg(__pyx_builtin_print, __pyx_t_6); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 287, __pyx_L6_except_error)
+        __Pyx_GOTREF(__pyx_t_12);
+        __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+        __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+        __Pyx_XDECREF(__pyx_t_13); __pyx_t_13 = 0;
+        __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __Pyx_XDECREF(__pyx_t_9); __pyx_t_9 = 0;
+        goto __pyx_L5_exception_handled;
+      }
+
+      /* "functions.pyx":283
+ * 
+ *     if threshold >= 0:
+ *         try:             # <<<<<<<<<<<<<<
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ */
+      __pyx_L6_except_error:;
+      __Pyx_XGIVEREF(__pyx_t_3);
+      __Pyx_XGIVEREF(__pyx_t_4);
+      __Pyx_XGIVEREF(__pyx_t_5);
+      __Pyx_ExceptionReset(__pyx_t_3, __pyx_t_4, __pyx_t_5);
+      goto __pyx_L1_error;
+      __pyx_L7_except_return:;
+      __Pyx_XGIVEREF(__pyx_t_3);
+      __Pyx_XGIVEREF(__pyx_t_4);
+      __Pyx_XGIVEREF(__pyx_t_5);
+      __Pyx_ExceptionReset(__pyx_t_3, __pyx_t_4, __pyx_t_5);
+      goto __pyx_L0;
+      __pyx_L5_exception_handled:;
+      __Pyx_XGIVEREF(__pyx_t_3);
+      __Pyx_XGIVEREF(__pyx_t_4);
+      __Pyx_XGIVEREF(__pyx_t_5);
+      __Pyx_ExceptionReset(__pyx_t_3, __pyx_t_4, __pyx_t_5);
+    }
+
+    /* "functions.pyx":282
+ *     threshold = getThreshold(val, alpha, U, L, 0, accepted)
+ * 
+ *     if threshold >= 0:             # <<<<<<<<<<<<<<
+ *         try:
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
+ */
+    goto __pyx_L3;
+  }
+
+  /* "functions.pyx":291
+ *             return (target - accepted)
+ *     else:
+ *         return 0             # <<<<<<<<<<<<<<
+ * 
+ * # note that when beta = 0, this is exactly the same as the OWT threshold
+ */
+  /*else*/ {
+    __pyx_r = 0.0;
+    goto __pyx_L0;
+  }
+  __pyx_L3:;
+
+  /* "functions.pyx":277
+ * 
+ * # helper for one-way trading algorithm
+ * cpdef float owtHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+
+  /* function exit code */
+  __pyx_r = 0;
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_6);
+  __Pyx_XDECREF(__pyx_t_7);
+  __Pyx_XDECREF(__pyx_t_8);
+  __Pyx_XDECREF(__pyx_t_9);
+  __Pyx_XDECREF(__pyx_t_10);
+  __Pyx_XDECREF(__pyx_t_11);
+  __Pyx_XDECREF(__pyx_t_12);
+  __Pyx_XDECREF(__pyx_t_13);
+  __Pyx_AddTraceback("functions.owtHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = -1;
+  __pyx_L0:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* Python wrapper */
+static PyObject *__pyx_pw_9functions_9owtHelper(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_9functions_9owtHelper = {"owtHelper", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_9owtHelper, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_9functions_9owtHelper(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  float __pyx_v_val;
+  float __pyx_v_accepted;
+  float __pyx_v_alpha;
+  float __pyx_v_U;
+  float __pyx_v_L;
+  float __pyx_v_beta;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED const Py_ssize_t __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("owtHelper (wrapper)", 0);
+  {
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_val,&__pyx_n_s_accepted,&__pyx_n_s_alpha,&__pyx_n_s_U,&__pyx_n_s_L,&__pyx_n_s_beta,0};
+    PyObject* values[6] = {0,0,0,0,0,0};
+    if (__pyx_kwds) {
+      Py_ssize_t kw_args;
+      switch (__pyx_nargs) {
+        case  6: values[5] = __Pyx_Arg_FASTCALL(__pyx_args, 5);
+        CYTHON_FALLTHROUGH;
+        case  5: values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
+        CYTHON_FALLTHROUGH;
+        case  4: values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+        CYTHON_FALLTHROUGH;
+        case  3: values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+        CYTHON_FALLTHROUGH;
+        case  2: values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+        CYTHON_FALLTHROUGH;
+        case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_val)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  1:
+        if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_accepted)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtHelper", 1, 6, 6, 1); __PYX_ERR(0, 277, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  2:
+        if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_alpha)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtHelper", 1, 6, 6, 2); __PYX_ERR(0, 277, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  3:
+        if (likely((values[3] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_U)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtHelper", 1, 6, 6, 3); __PYX_ERR(0, 277, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  4:
+        if (likely((values[4] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_L)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtHelper", 1, 6, 6, 4); __PYX_ERR(0, 277, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  5:
+        if (likely((values[5] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("owtHelper", 1, 6, 6, 5); __PYX_ERR(0, 277, __pyx_L3_error)
+        }
+      }
+      if (unlikely(kw_args > 0)) {
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "owtHelper") < 0)) __PYX_ERR(0, 277, __pyx_L3_error)
+      }
+    } else if (unlikely(__pyx_nargs != 6)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+      values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+      values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+      values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+      values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
+      values[5] = __Pyx_Arg_FASTCALL(__pyx_args, 5);
+    }
+    __pyx_v_val = __pyx_PyFloat_AsFloat(values[0]); if (unlikely((__pyx_v_val == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+    __pyx_v_accepted = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_accepted == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+    __pyx_v_alpha = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_alpha == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+    __pyx_v_U = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+    __pyx_v_L = __pyx_PyFloat_AsFloat(values[4]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[5]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L3_error)
+  }
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("owtHelper", 1, 6, 6, __pyx_nargs); __PYX_ERR(0, 277, __pyx_L3_error)
+  __pyx_L3_error:;
+  __Pyx_AddTraceback("functions.owtHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  __pyx_r = __pyx_pf_9functions_8owtHelper(__pyx_self, __pyx_v_val, __pyx_v_accepted, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta);
+
+  /* function exit code */
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_9functions_8owtHelper(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_val, float __pyx_v_accepted, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  float __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("owtHelper", 0);
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = __pyx_f_9functions_owtHelper(__pyx_v_val, __pyx_v_accepted, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta, 0); if (unlikely(__pyx_t_1 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 277, __pyx_L1_error)
+  __pyx_t_2 = PyFloat_FromDouble(__pyx_t_1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 277, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __pyx_r = __pyx_t_2;
+  __pyx_t_2 = 0;
+  goto __pyx_L0;
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_AddTraceback("functions.owtHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "functions.pyx":294
+ * 
+ * # note that when beta = 0, this is exactly the same as the OWT threshold
+ * cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):             # <<<<<<<<<<<<<<
+ *     return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val
+ * 
+ */
+
+static PyObject *__pyx_pw_9functions_11getThreshold(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static float __pyx_f_9functions_getThreshold(float __pyx_v_val, float __pyx_v_alpha, float __pyx_v_U, CYTHON_UNUSED float __pyx_v_L, float __pyx_v_beta, float __pyx_v_w, CYTHON_UNUSED int __pyx_skip_dispatch) {
+  float __pyx_r;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  PyObject *__pyx_t_2 = NULL;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  PyObject *__pyx_t_6 = NULL;
+  int __pyx_t_7;
+  float __pyx_t_8;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("getThreshold", 0);
+
+  /* "functions.pyx":295
+ * # note that when beta = 0, this is exactly the same as the OWT threshold
+ * cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):
+ *     return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val             # <<<<<<<<<<<<<<
+ * 
+ * 
+ */
+  __pyx_t_1 = PyFloat_FromDouble((__pyx_v_U - __pyx_v_beta)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  if (unlikely(__pyx_v_alpha == 0)) {
+    PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+    __PYX_ERR(0, 295, __pyx_L1_error)
+  }
+  __pyx_t_2 = PyFloat_FromDouble((((__pyx_v_U / __pyx_v_alpha) - __pyx_v_U) + (2.0 * __pyx_v_beta))); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_n_s_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_n_s_exp); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+  if (unlikely(__pyx_v_alpha == 0)) {
+    PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+    __PYX_ERR(0, 295, __pyx_L1_error)
+  }
+  __pyx_t_4 = PyFloat_FromDouble((__pyx_v_w / __pyx_v_alpha)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_6 = NULL;
+  __pyx_t_7 = 0;
+  if (CYTHON_UNPACK_METHODS && unlikely(PyMethod_Check(__pyx_t_5))) {
+    __pyx_t_6 = PyMethod_GET_SELF(__pyx_t_5);
+    if (likely(__pyx_t_6)) {
+      PyObject* function = PyMethod_GET_FUNCTION(__pyx_t_5);
+      __Pyx_INCREF(__pyx_t_6);
+      __Pyx_INCREF(function);
+      __Pyx_DECREF_SET(__pyx_t_5, function);
+      __pyx_t_7 = 1;
+    }
+  }
+  {
+    PyObject *__pyx_callargs[2] = {__pyx_t_6, __pyx_t_4};
+    __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+1-__pyx_t_7, 1+__pyx_t_7);
+    __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 295, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_3);
+    __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  }
+  __pyx_t_5 = PyNumber_Multiply(__pyx_t_2, __pyx_t_3); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __pyx_t_3 = PyNumber_Add(__pyx_t_1, __pyx_t_5); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  __pyx_t_5 = PyFloat_FromDouble(__pyx_v_val); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  __pyx_t_1 = PyNumber_Subtract(__pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  __pyx_t_8 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_8 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 295, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __pyx_r = __pyx_t_8;
+  goto __pyx_L0;
+
+  /* "functions.pyx":294
+ * 
+ * # note that when beta = 0, this is exactly the same as the OWT threshold
+ * cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):             # <<<<<<<<<<<<<<
+ *     return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val
+ * 
+ */
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_XDECREF(__pyx_t_3);
+  __Pyx_XDECREF(__pyx_t_4);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_XDECREF(__pyx_t_6);
+  __Pyx_AddTraceback("functions.getThreshold", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = -1;
+  __pyx_L0:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* Python wrapper */
+static PyObject *__pyx_pw_9functions_11getThreshold(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_9functions_11getThreshold = {"getThreshold", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_11getThreshold, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_9functions_11getThreshold(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  float __pyx_v_val;
+  float __pyx_v_alpha;
+  float __pyx_v_U;
+  float __pyx_v_L;
+  float __pyx_v_beta;
+  float __pyx_v_w;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED const Py_ssize_t __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("getThreshold (wrapper)", 0);
+  {
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_val,&__pyx_n_s_alpha,&__pyx_n_s_U,&__pyx_n_s_L,&__pyx_n_s_beta,&__pyx_n_s_w,0};
+    PyObject* values[6] = {0,0,0,0,0,0};
+    if (__pyx_kwds) {
+      Py_ssize_t kw_args;
+      switch (__pyx_nargs) {
+        case  6: values[5] = __Pyx_Arg_FASTCALL(__pyx_args, 5);
+        CYTHON_FALLTHROUGH;
+        case  5: values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
+        CYTHON_FALLTHROUGH;
+        case  4: values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+        CYTHON_FALLTHROUGH;
+        case  3: values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+        CYTHON_FALLTHROUGH;
+        case  2: values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+        CYTHON_FALLTHROUGH;
+        case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_val)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  1:
+        if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_alpha)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("getThreshold", 1, 6, 6, 1); __PYX_ERR(0, 294, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  2:
+        if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_U)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("getThreshold", 1, 6, 6, 2); __PYX_ERR(0, 294, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  3:
+        if (likely((values[3] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_L)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("getThreshold", 1, 6, 6, 3); __PYX_ERR(0, 294, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  4:
+        if (likely((values[4] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("getThreshold", 1, 6, 6, 4); __PYX_ERR(0, 294, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  5:
+        if (likely((values[5] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_w)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("getThreshold", 1, 6, 6, 5); __PYX_ERR(0, 294, __pyx_L3_error)
+        }
+      }
+      if (unlikely(kw_args > 0)) {
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "getThreshold") < 0)) __PYX_ERR(0, 294, __pyx_L3_error)
+      }
+    } else if (unlikely(__pyx_nargs != 6)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+      values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+      values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+      values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+      values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
+      values[5] = __Pyx_Arg_FASTCALL(__pyx_args, 5);
+    }
+    __pyx_v_val = __pyx_PyFloat_AsFloat(values[0]); if (unlikely((__pyx_v_val == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+    __pyx_v_alpha = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_alpha == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+    __pyx_v_U = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+    __pyx_v_L = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[4]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+    __pyx_v_w = __pyx_PyFloat_AsFloat(values[5]); if (unlikely((__pyx_v_w == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L3_error)
+  }
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("getThreshold", 1, 6, 6, __pyx_nargs); __PYX_ERR(0, 294, __pyx_L3_error)
+  __pyx_L3_error:;
+  __Pyx_AddTraceback("functions.getThreshold", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  __pyx_r = __pyx_pf_9functions_10getThreshold(__pyx_self, __pyx_v_val, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta, __pyx_v_w);
+
+  /* function exit code */
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_9functions_10getThreshold(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_val, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta, float __pyx_v_w) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  float __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("getThreshold", 0);
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = __pyx_f_9functions_getThreshold(__pyx_v_val, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta, __pyx_v_w, 0); if (unlikely(__pyx_t_1 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 294, __pyx_L1_error)
+  __pyx_t_2 = PyFloat_FromDouble(__pyx_t_1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 294, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __pyx_r = __pyx_t_2;
+  __pyx_t_2 = 0;
+  goto __pyx_L0;
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_AddTraceback("functions.getThreshold", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "functions.pyx":303
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+
+static PyObject *__pyx_pw_9functions_13roroOnline(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyObject *__pyx_f_9functions_roroOnline(PyObject *__pyx_v_vals, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
+  int __pyx_v_i;
+  PyObject *__pyx_v_sol = 0;
+  float __pyx_v_cost;
+  float __pyx_v_val;
+  float __pyx_v_alpha;
+  float __pyx_v_accepted;
+  double __pyx_v_remainder;
+  float __pyx_v_amount;
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  PyObject *__pyx_t_2 = NULL;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  int __pyx_t_6;
+  float __pyx_t_7;
+  Py_ssize_t __pyx_t_8;
+  int __pyx_t_9;
+  int __pyx_t_10;
+  Py_ssize_t __pyx_t_11;
+  PyObject *__pyx_t_12 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("roroOnline", 0);
+
+  /* "functions.pyx":308
+ *     cdef float cost, val, alpha, accepted
+ * 
+ *     sol = []             # <<<<<<<<<<<<<<
+ *     accepted = 0
+ *     cost = 0
+ */
+  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 308, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_v_sol = ((PyObject*)__pyx_t_1);
+  __pyx_t_1 = 0;
+
+  /* "functions.pyx":309
+ * 
+ *     sol = []
+ *     accepted = 0             # <<<<<<<<<<<<<<
+ *     cost = 0
+ *     L = 0.0001
+ */
+  __pyx_v_accepted = 0.0;
+
+  /* "functions.pyx":310
+ *     sol = []
+ *     accepted = 0
+ *     cost = 0             # <<<<<<<<<<<<<<
+ *     L = 0.0001
+ *     U = 30
+ */
+  __pyx_v_cost = 0.0;
+
+  /* "functions.pyx":311
+ *     accepted = 0
+ *     cost = 0
+ *     L = 0.0001             # <<<<<<<<<<<<<<
+ *     U = 30
+ * 
+ */
+  __pyx_v_L = 0.0001;
+
+  /* "functions.pyx":312
+ *     cost = 0
+ *     L = 0.0001
+ *     U = 30             # <<<<<<<<<<<<<<
+ * 
+ *     # get value for alpha
+ */
+  __pyx_v_U = 30.0;
+
+  /* "functions.pyx":315
+ * 
+ *     # get value for alpha
+ *     alpha = 1 / (1 + lambertw( ( (L/U) - 1 ) / math.e ) )             # <<<<<<<<<<<<<<
+ * 
+ *     #simulate behavior of online algorithm using a for loop
+ */
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_n_s_lambertw); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  if (unlikely(__pyx_v_U == 0)) {
+    PyErr_SetString(PyExc_ZeroDivisionError, "float division");
+    __PYX_ERR(0, 315, __pyx_L1_error)
+  }
+  __pyx_t_3 = PyFloat_FromDouble(((__pyx_v_L / __pyx_v_U) - 1.0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_n_s_math); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_n_s_e); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+  __pyx_t_4 = __Pyx_PyNumber_Divide(__pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  __pyx_t_5 = NULL;
+  __pyx_t_6 = 0;
+  if (CYTHON_UNPACK_METHODS && unlikely(PyMethod_Check(__pyx_t_2))) {
+    __pyx_t_5 = PyMethod_GET_SELF(__pyx_t_2);
+    if (likely(__pyx_t_5)) {
+      PyObject* function = PyMethod_GET_FUNCTION(__pyx_t_2);
+      __Pyx_INCREF(__pyx_t_5);
+      __Pyx_INCREF(function);
+      __Pyx_DECREF_SET(__pyx_t_2, function);
+      __pyx_t_6 = 1;
+    }
+  }
+  {
+    PyObject *__pyx_callargs[2] = {__pyx_t_5, __pyx_t_4};
+    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_2, __pyx_callargs+1-__pyx_t_6, 1+__pyx_t_6);
+    __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 315, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_1);
+    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  }
+  __pyx_t_2 = __Pyx_PyInt_AddCObj(__pyx_int_1, __pyx_t_1, 1, 0, 0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __pyx_t_1 = __Pyx_PyNumber_Divide(__pyx_int_1, __pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_1); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 315, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __pyx_v_alpha = __pyx_t_7;
+
+  /* "functions.pyx":318
+ * 
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):             # <<<<<<<<<<<<<<
+ *         if accepted >= 1:
+ *             sol.append(0)
+ */
+  __pyx_t_6 = 0;
+  __pyx_t_1 = __pyx_v_vals; __Pyx_INCREF(__pyx_t_1); __pyx_t_8 = 0;
+  for (;;) {
+    if (__pyx_t_8 >= PyList_GET_SIZE(__pyx_t_1)) break;
+    #if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS
+    __pyx_t_2 = PyList_GET_ITEM(__pyx_t_1, __pyx_t_8); __Pyx_INCREF(__pyx_t_2); __pyx_t_8++; if (unlikely((0 < 0))) __PYX_ERR(0, 318, __pyx_L1_error)
+    #else
+    __pyx_t_2 = PySequence_ITEM(__pyx_t_1, __pyx_t_8); __pyx_t_8++; if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 318, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_2);
+    #endif
+    __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_2); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 318, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+    __pyx_v_val = __pyx_t_7;
+    __pyx_v_i = __pyx_t_6;
+    __pyx_t_6 = (__pyx_t_6 + 1);
+
+    /* "functions.pyx":319
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             sol.append(0)
+ *             continue
+ */
+    __pyx_t_9 = (__pyx_v_accepted >= 1.0);
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":320
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= 1:
+ *             sol.append(0)             # <<<<<<<<<<<<<<
+ *             continue
+ * 
+ */
+      __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_int_0); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 320, __pyx_L1_error)
+
+      /* "functions.pyx":321
+ *         if accepted >= 1:
+ *             sol.append(0)
+ *             continue             # <<<<<<<<<<<<<<
+ * 
+ *         if i == len(vals) - 1: # must accept last price
+ */
+      goto __pyx_L3_continue;
+
+      /* "functions.pyx":319
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             sol.append(0)
+ *             continue
+ */
+    }
+
+    /* "functions.pyx":323
+ *             continue
+ * 
+ *         if i == len(vals) - 1: # must accept last price             # <<<<<<<<<<<<<<
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost
+ */
+    if (unlikely(__pyx_v_vals == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+      __PYX_ERR(0, 323, __pyx_L1_error)
+    }
+    __pyx_t_11 = PyList_GET_SIZE(__pyx_v_vals); if (unlikely(__pyx_t_11 == ((Py_ssize_t)-1))) __PYX_ERR(0, 323, __pyx_L1_error)
+    __pyx_t_9 = (__pyx_v_i == (__pyx_t_11 - 1));
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":324
+ * 
+ *         if i == len(vals) - 1: # must accept last price
+ *             remainder = 1.0 - accepted             # <<<<<<<<<<<<<<
+ *             cost += val * remainder # hitting cost
+ *             cost += (beta * abs(remainder - sol[-1]))
+ */
+      __pyx_v_remainder = (1.0 - __pyx_v_accepted);
+
+      /* "functions.pyx":325
+ *         if i == len(vals) - 1: # must accept last price
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(remainder - sol[-1]))
+ *             sol.append(remainder)
+ */
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_val * __pyx_v_remainder));
+
+      /* "functions.pyx":326
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost
+ *             cost += (beta * abs(remainder - sol[-1]))             # <<<<<<<<<<<<<<
+ *             sol.append(remainder)
+ *             accepted += remainder
+ */
+      __pyx_t_2 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_2);
+      __pyx_t_4 = PyFloat_FromDouble(__pyx_v_beta); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __pyx_t_5 = PyFloat_FromDouble(__pyx_v_remainder); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __pyx_t_3 = __Pyx_GetItemInt_List(__pyx_v_sol, -1L, long, 1, __Pyx_PyInt_From_long, 1, 1, 1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_12 = PyNumber_Subtract(__pyx_t_5, __pyx_t_3); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_12);
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_t_3 = __Pyx_PyNumber_Absolute(__pyx_t_12); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __pyx_t_12 = PyNumber_Multiply(__pyx_t_4, __pyx_t_3); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_12);
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_t_3 = PyNumber_InPlaceAdd(__pyx_t_2, __pyx_t_12); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+      __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_3); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 326, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __pyx_v_cost = __pyx_t_7;
+
+      /* "functions.pyx":327
+ *             cost += val * remainder # hitting cost
+ *             cost += (beta * abs(remainder - sol[-1]))
+ *             sol.append(remainder)             # <<<<<<<<<<<<<<
+ *             accepted += remainder
+ *             break
+ */
+      __pyx_t_3 = PyFloat_FromDouble(__pyx_v_remainder); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 327, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_t_3); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 327, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+      /* "functions.pyx":328
+ *             cost += (beta * abs(remainder - sol[-1]))
+ *             sol.append(remainder)
+ *             accepted += remainder             # <<<<<<<<<<<<<<
+ *             break
+ * 
+ */
+      __pyx_v_accepted = (__pyx_v_accepted + __pyx_v_remainder);
+
+      /* "functions.pyx":329
+ *             sol.append(remainder)
+ *             accepted += remainder
+ *             break             # <<<<<<<<<<<<<<
+ * 
+ *         # solve for threshold-defined amount
+ */
+      goto __pyx_L4_break;
+
+      /* "functions.pyx":323
+ *             continue
+ * 
+ *         if i == len(vals) - 1: # must accept last price             # <<<<<<<<<<<<<<
+ *             remainder = 1.0 - accepted
+ *             cost += val * remainder # hitting cost
+ */
+    }
+
+    /* "functions.pyx":332
+ * 
+ *         # solve for threshold-defined amount
+ *         amount = roroHelper(val, accepted, alpha, L, U, beta)             # <<<<<<<<<<<<<<
+ *         accepted += amount
+ *         cost += val * amount
+ */
+    __pyx_t_7 = __pyx_f_9functions_roroHelper(__pyx_v_val, __pyx_v_accepted, __pyx_v_alpha, __pyx_v_L, __pyx_v_U, __pyx_v_beta, 0); if (unlikely(__pyx_t_7 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 332, __pyx_L1_error)
+    __pyx_v_amount = __pyx_t_7;
+
+    /* "functions.pyx":333
+ *         # solve for threshold-defined amount
+ *         amount = roroHelper(val, accepted, alpha, L, U, beta)
+ *         accepted += amount             # <<<<<<<<<<<<<<
+ *         cost += val * amount
+ *         if i == 0:
+ */
+    __pyx_v_accepted = (__pyx_v_accepted + __pyx_v_amount);
+
+    /* "functions.pyx":334
+ *         amount = roroHelper(val, accepted, alpha, L, U, beta)
+ *         accepted += amount
+ *         cost += val * amount             # <<<<<<<<<<<<<<
+ *         if i == 0:
+ *             cost += (beta * abs(amount - 0))
+ */
+    __pyx_v_cost = (__pyx_v_cost + (__pyx_v_val * __pyx_v_amount));
+
+    /* "functions.pyx":335
+ *         accepted += amount
+ *         cost += val * amount
+ *         if i == 0:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(amount - 0))
+ *         else:
+ */
+    __pyx_t_9 = (__pyx_v_i == 0);
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":336
+ *         cost += val * amount
+ *         if i == 0:
+ *             cost += (beta * abs(amount - 0))             # <<<<<<<<<<<<<<
+ *         else:
+ *             cost += (beta * abs(amount - sol[-1]))
+ */
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_beta * fabsf((__pyx_v_amount - 0.0))));
+
+      /* "functions.pyx":335
+ *         accepted += amount
+ *         cost += val * amount
+ *         if i == 0:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(amount - 0))
+ *         else:
+ */
+      goto __pyx_L7;
+    }
+
+    /* "functions.pyx":338
+ *             cost += (beta * abs(amount - 0))
+ *         else:
+ *             cost += (beta * abs(amount - sol[-1]))             # <<<<<<<<<<<<<<
+ *         sol.append(amount)
+ *         if accepted >= 1:
+ */
+    /*else*/ {
+      __pyx_t_3 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+      __pyx_t_12 = PyFloat_FromDouble(__pyx_v_beta); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_12);
+      __pyx_t_2 = PyFloat_FromDouble(__pyx_v_amount); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_2);
+      __pyx_t_4 = __Pyx_GetItemInt_List(__pyx_v_sol, -1L, long, 1, __Pyx_PyInt_From_long, 1, 1, 1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __pyx_t_5 = PyNumber_Subtract(__pyx_t_2, __pyx_t_4); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __pyx_t_4 = __Pyx_PyNumber_Absolute(__pyx_t_5); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __pyx_t_5 = PyNumber_Multiply(__pyx_t_12, __pyx_t_4); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __pyx_t_4 = PyNumber_InPlaceAdd(__pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_4);
+      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      __pyx_t_7 = __pyx_PyFloat_AsFloat(__pyx_t_4); if (unlikely((__pyx_t_7 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 338, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __pyx_v_cost = __pyx_t_7;
+    }
+    __pyx_L7:;
+
+    /* "functions.pyx":339
+ *         else:
+ *             cost += (beta * abs(amount - sol[-1]))
+ *         sol.append(amount)             # <<<<<<<<<<<<<<
+ *         if accepted >= 1:
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ */
+    __pyx_t_4 = PyFloat_FromDouble(__pyx_v_amount); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 339, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_4);
+    __pyx_t_10 = __Pyx_PyList_Append(__pyx_v_sol, __pyx_t_4); if (unlikely(__pyx_t_10 == ((int)-1))) __PYX_ERR(0, 339, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+    /* "functions.pyx":340
+ *             cost += (beta * abs(amount - sol[-1]))
+ *         sol.append(amount)
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ *             continue
+ */
+    __pyx_t_9 = (__pyx_v_accepted >= 1.0);
+    if (__pyx_t_9) {
+
+      /* "functions.pyx":341
+ *         sol.append(amount)
+ *         if accepted >= 1:
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off             # <<<<<<<<<<<<<<
+ *             continue
+ * 
+ */
+      __pyx_v_cost = (__pyx_v_cost + (__pyx_v_beta * fabsf((0.0 - __pyx_v_amount))));
+
+      /* "functions.pyx":342
+ *         if accepted >= 1:
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ *             continue             # <<<<<<<<<<<<<<
+ * 
+ *     return sol, cost
+ */
+      goto __pyx_L3_continue;
+
+      /* "functions.pyx":340
+ *             cost += (beta * abs(amount - sol[-1]))
+ *         sol.append(amount)
+ *         if accepted >= 1:             # <<<<<<<<<<<<<<
+ *             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
+ *             continue
+ */
+    }
+
+    /* "functions.pyx":318
+ * 
+ *     #simulate behavior of online algorithm using a for loop
+ *     for (i, val) in enumerate(vals):             # <<<<<<<<<<<<<<
+ *         if accepted >= 1:
+ *             sol.append(0)
+ */
+    __pyx_L3_continue:;
+  }
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  goto __pyx_L9_for_end;
+  __pyx_L4_break:;
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  goto __pyx_L9_for_end;
+  __pyx_L9_for_end:;
+
+  /* "functions.pyx":344
+ *             continue
+ * 
+ *     return sol, cost             # <<<<<<<<<<<<<<
+ * 
+ * # helper for RORO algorithm
+ */
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = PyFloat_FromDouble(__pyx_v_cost); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 344, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_t_4 = PyTuple_New(2); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 344, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __Pyx_INCREF(__pyx_v_sol);
+  __Pyx_GIVEREF(__pyx_v_sol);
+  PyTuple_SET_ITEM(__pyx_t_4, 0, __pyx_v_sol);
+  __Pyx_GIVEREF(__pyx_t_1);
+  PyTuple_SET_ITEM(__pyx_t_4, 1, __pyx_t_1);
+  __pyx_t_1 = 0;
+  __pyx_r = ((PyObject*)__pyx_t_4);
+  __pyx_t_4 = 0;
+  goto __pyx_L0;
+
+  /* "functions.pyx":303
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_XDECREF(__pyx_t_3);
+  __Pyx_XDECREF(__pyx_t_4);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_XDECREF(__pyx_t_12);
+  __Pyx_AddTraceback("functions.roroOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = 0;
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_sol);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* Python wrapper */
+static PyObject *__pyx_pw_9functions_13roroOnline(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_9functions_13roroOnline = {"roroOnline", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_13roroOnline, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_9functions_13roroOnline(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  PyObject *__pyx_v_vals = 0;
+  float __pyx_v_U;
+  float __pyx_v_L;
+  float __pyx_v_beta;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED const Py_ssize_t __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("roroOnline (wrapper)", 0);
+  {
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_vals,&__pyx_n_s_U,&__pyx_n_s_L,&__pyx_n_s_beta,0};
+    PyObject* values[4] = {0,0,0,0};
+    if (__pyx_kwds) {
+      Py_ssize_t kw_args;
+      switch (__pyx_nargs) {
+        case  4: values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+        CYTHON_FALLTHROUGH;
+        case  3: values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+        CYTHON_FALLTHROUGH;
+        case  2: values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+        CYTHON_FALLTHROUGH;
+        case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_vals)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  1:
+        if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_U)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroOnline", 1, 4, 4, 1); __PYX_ERR(0, 303, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  2:
+        if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_L)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroOnline", 1, 4, 4, 2); __PYX_ERR(0, 303, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  3:
+        if (likely((values[3] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroOnline", 1, 4, 4, 3); __PYX_ERR(0, 303, __pyx_L3_error)
+        }
+      }
+      if (unlikely(kw_args > 0)) {
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "roroOnline") < 0)) __PYX_ERR(0, 303, __pyx_L3_error)
+      }
+    } else if (unlikely(__pyx_nargs != 4)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+      values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+      values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+      values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+    }
+    __pyx_v_vals = ((PyObject*)values[0]);
+    __pyx_v_U = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+    __pyx_v_L = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L3_error)
+  }
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("roroOnline", 1, 4, 4, __pyx_nargs); __PYX_ERR(0, 303, __pyx_L3_error)
+  __pyx_L3_error:;
+  __Pyx_AddTraceback("functions.roroOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_vals), (&PyList_Type), 1, "vals", 1))) __PYX_ERR(0, 303, __pyx_L1_error)
+  __pyx_r = __pyx_pf_9functions_12roroOnline(__pyx_self, __pyx_v_vals, __pyx_v_U, __pyx_v_L, __pyx_v_beta);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_9functions_12roroOnline(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_vals, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("roroOnline", 0);
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = __pyx_f_9functions_roroOnline(__pyx_v_vals, __pyx_v_U, __pyx_v_L, __pyx_v_beta, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 303, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_r = __pyx_t_1;
+  __pyx_t_1 = 0;
+  goto __pyx_L0;
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_AddTraceback("functions.roroOnline", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "functions.pyx":347
+ * 
+ * # helper for RORO algorithm
+ * cpdef float roroHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+
+static PyObject *__pyx_pw_9functions_15roroHelper(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static float __pyx_f_9functions_roroHelper(float __pyx_v_val, float __pyx_v_accepted, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta, CYTHON_UNUSED int __pyx_skip_dispatch) {
+  float __pyx_v_threshold;
+  float __pyx_v_target;
+  float __pyx_r;
+  __Pyx_RefNannyDeclarations
+  float __pyx_t_1;
+  int __pyx_t_2;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  PyObject *__pyx_t_6 = NULL;
+  PyObject *__pyx_t_7 = NULL;
+  PyObject *__pyx_t_8 = NULL;
+  PyObject *__pyx_t_9 = NULL;
+  PyObject *__pyx_t_10 = NULL;
+  PyObject *__pyx_t_11 = NULL;
+  PyObject *__pyx_t_12 = NULL;
+  PyObject *__pyx_t_13 = NULL;
+  PyObject *__pyx_t_14 = NULL;
+  int __pyx_t_15;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("roroHelper", 0);
+
+  /* "functions.pyx":350
+ *     cdef float threshold, target
+ * 
+ *     threshold = getThreshold(val, alpha, U, L, beta, accepted)             # <<<<<<<<<<<<<<
+ * 
+ *     if threshold >= 0:
+ */
+  __pyx_t_1 = __pyx_f_9functions_getThreshold(__pyx_v_val, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta, __pyx_v_accepted, 0); if (unlikely(__pyx_t_1 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 350, __pyx_L1_error)
+  __pyx_v_threshold = __pyx_t_1;
+
+  /* "functions.pyx":352
+ *     threshold = getThreshold(val, alpha, U, L, beta, accepted)
+ * 
+ *     if threshold >= 0:             # <<<<<<<<<<<<<<
+ *         try:
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+ */
+  __pyx_t_2 = (__pyx_v_threshold >= 0.0);
+  if (__pyx_t_2) {
+
+    /* "functions.pyx":353
+ * 
+ *     if threshold >= 0:
+ *         try:             # <<<<<<<<<<<<<<
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ */
+    {
+      __Pyx_PyThreadState_declare
+      __Pyx_PyThreadState_assign
+      __Pyx_ExceptionSave(&__pyx_t_3, &__pyx_t_4, &__pyx_t_5);
+      __Pyx_XGOTREF(__pyx_t_3);
+      __Pyx_XGOTREF(__pyx_t_4);
+      __Pyx_XGOTREF(__pyx_t_5);
+      /*try:*/ {
+
+        /* "functions.pyx":354
+ *     if threshold >= 0:
+ *         try:
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]             # <<<<<<<<<<<<<<
+ *         # solve for the amount
+ *         except:
+ */
+        __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_n_s_minimize); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_6);
+        __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_n_s_getThreshold); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_7);
+        __pyx_t_8 = PyFloat_FromDouble(__pyx_v_accepted); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __pyx_t_9 = PyTuple_New(2); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_9);
+        __Pyx_GIVEREF(__pyx_t_7);
+        PyTuple_SET_ITEM(__pyx_t_9, 0, __pyx_t_7);
+        __Pyx_GIVEREF(__pyx_t_8);
+        PyTuple_SET_ITEM(__pyx_t_9, 1, __pyx_t_8);
+        __pyx_t_7 = 0;
+        __pyx_t_8 = 0;
+        __pyx_t_8 = __Pyx_PyDict_NewPresized(2); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __pyx_t_7 = PyFloat_FromDouble(__pyx_v_val); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_7);
+        __pyx_t_10 = PyFloat_FromDouble(__pyx_v_alpha); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_10);
+        __pyx_t_11 = PyFloat_FromDouble(__pyx_v_U); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_11);
+        __pyx_t_12 = PyFloat_FromDouble(__pyx_v_L); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_12);
+        __pyx_t_13 = PyFloat_FromDouble(__pyx_v_beta); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __pyx_t_14 = PyTuple_New(5); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_14);
+        __Pyx_GIVEREF(__pyx_t_7);
+        PyTuple_SET_ITEM(__pyx_t_14, 0, __pyx_t_7);
+        __Pyx_GIVEREF(__pyx_t_10);
+        PyTuple_SET_ITEM(__pyx_t_14, 1, __pyx_t_10);
+        __Pyx_GIVEREF(__pyx_t_11);
+        PyTuple_SET_ITEM(__pyx_t_14, 2, __pyx_t_11);
+        __Pyx_GIVEREF(__pyx_t_12);
+        PyTuple_SET_ITEM(__pyx_t_14, 3, __pyx_t_12);
+        __Pyx_GIVEREF(__pyx_t_13);
+        PyTuple_SET_ITEM(__pyx_t_14, 4, __pyx_t_13);
+        __pyx_t_7 = 0;
+        __pyx_t_10 = 0;
+        __pyx_t_11 = 0;
+        __pyx_t_12 = 0;
+        __pyx_t_13 = 0;
+        if (PyDict_SetItem(__pyx_t_8, __pyx_n_s_args, __pyx_t_14) < 0) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_DECREF(__pyx_t_14); __pyx_t_14 = 0;
+        __pyx_t_14 = PyList_New(1); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_14);
+        __Pyx_INCREF(__pyx_tuple_);
+        __Pyx_GIVEREF(__pyx_tuple_);
+        PyList_SET_ITEM(__pyx_t_14, 0, __pyx_tuple_);
+        if (PyDict_SetItem(__pyx_t_8, __pyx_n_s_bounds, __pyx_t_14) < 0) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_DECREF(__pyx_t_14); __pyx_t_14 = 0;
+        __pyx_t_14 = __Pyx_PyObject_Call(__pyx_t_6, __pyx_t_9, __pyx_t_8); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_14);
+        __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+        __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
+        __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_14, __pyx_n_s_x); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __Pyx_DECREF(__pyx_t_14); __pyx_t_14 = 0;
+        __pyx_t_14 = __Pyx_GetItemInt(__pyx_t_8, 0, long, 1, __Pyx_PyInt_From_long, 0, 0, 1); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_GOTREF(__pyx_t_14);
+        __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __pyx_t_1 = __pyx_PyFloat_AsFloat(__pyx_t_14); if (unlikely((__pyx_t_1 == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 354, __pyx_L4_error)
+        __Pyx_DECREF(__pyx_t_14); __pyx_t_14 = 0;
+        __pyx_v_target = __pyx_t_1;
+
+        /* "functions.pyx":353
+ * 
+ *     if threshold >= 0:
+ *         try:             # <<<<<<<<<<<<<<
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ */
+      }
+
+      /* "functions.pyx":359
+ *             print("something went wrong here w_j={}".format(accepted))
+ *         else:
+ *             return (target - accepted)             # <<<<<<<<<<<<<<
+ *     else:
+ *         return 0
+ */
+      /*else:*/ {
+        __pyx_r = (__pyx_v_target - __pyx_v_accepted);
+        goto __pyx_L7_except_return;
+      }
+      __pyx_L4_error:;
+      __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
+      __Pyx_XDECREF(__pyx_t_11); __pyx_t_11 = 0;
+      __Pyx_XDECREF(__pyx_t_12); __pyx_t_12 = 0;
+      __Pyx_XDECREF(__pyx_t_13); __pyx_t_13 = 0;
+      __Pyx_XDECREF(__pyx_t_14); __pyx_t_14 = 0;
+      __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
+      __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
+      __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
+      __Pyx_XDECREF(__pyx_t_9); __pyx_t_9 = 0;
+
+      /* "functions.pyx":356
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ *         except:             # <<<<<<<<<<<<<<
+ *             print("something went wrong here w_j={}".format(accepted))
+ *         else:
+ */
+      /*except:*/ {
+        __Pyx_AddTraceback("functions.roroHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+        if (__Pyx_GetException(&__pyx_t_14, &__pyx_t_8, &__pyx_t_9) < 0) __PYX_ERR(0, 356, __pyx_L6_except_error)
+        __Pyx_XGOTREF(__pyx_t_14);
+        __Pyx_XGOTREF(__pyx_t_8);
+        __Pyx_XGOTREF(__pyx_t_9);
+
+        /* "functions.pyx":357
+ *         # solve for the amount
+ *         except:
+ *             print("something went wrong here w_j={}".format(accepted))             # <<<<<<<<<<<<<<
+ *         else:
+ *             return (target - accepted)
+ */
+        __pyx_t_13 = __Pyx_PyObject_GetAttrStr(__pyx_kp_u_something_went_wrong_here_w_j, __pyx_n_s_format); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 357, __pyx_L6_except_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __pyx_t_12 = PyFloat_FromDouble(__pyx_v_accepted); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 357, __pyx_L6_except_error)
+        __Pyx_GOTREF(__pyx_t_12);
+        __pyx_t_11 = NULL;
+        __pyx_t_15 = 0;
+        if (CYTHON_UNPACK_METHODS && likely(PyMethod_Check(__pyx_t_13))) {
+          __pyx_t_11 = PyMethod_GET_SELF(__pyx_t_13);
+          if (likely(__pyx_t_11)) {
+            PyObject* function = PyMethod_GET_FUNCTION(__pyx_t_13);
+            __Pyx_INCREF(__pyx_t_11);
+            __Pyx_INCREF(function);
+            __Pyx_DECREF_SET(__pyx_t_13, function);
+            __pyx_t_15 = 1;
+          }
+        }
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_11, __pyx_t_12};
+          __pyx_t_6 = __Pyx_PyObject_FastCall(__pyx_t_13, __pyx_callargs+1-__pyx_t_15, 1+__pyx_t_15);
+          __Pyx_XDECREF(__pyx_t_11); __pyx_t_11 = 0;
+          __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
+          if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 357, __pyx_L6_except_error)
+          __Pyx_GOTREF(__pyx_t_6);
+          __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
+        }
+        __pyx_t_13 = __Pyx_PyObject_CallOneArg(__pyx_builtin_print, __pyx_t_6); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 357, __pyx_L6_except_error)
+        __Pyx_GOTREF(__pyx_t_13);
+        __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+        __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
+        __Pyx_XDECREF(__pyx_t_14); __pyx_t_14 = 0;
+        __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __Pyx_XDECREF(__pyx_t_9); __pyx_t_9 = 0;
+        goto __pyx_L5_exception_handled;
+      }
+
+      /* "functions.pyx":353
+ * 
+ *     if threshold >= 0:
+ *         try:             # <<<<<<<<<<<<<<
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+ *         # solve for the amount
+ */
+      __pyx_L6_except_error:;
+      __Pyx_XGIVEREF(__pyx_t_3);
+      __Pyx_XGIVEREF(__pyx_t_4);
+      __Pyx_XGIVEREF(__pyx_t_5);
+      __Pyx_ExceptionReset(__pyx_t_3, __pyx_t_4, __pyx_t_5);
+      goto __pyx_L1_error;
+      __pyx_L7_except_return:;
+      __Pyx_XGIVEREF(__pyx_t_3);
+      __Pyx_XGIVEREF(__pyx_t_4);
+      __Pyx_XGIVEREF(__pyx_t_5);
+      __Pyx_ExceptionReset(__pyx_t_3, __pyx_t_4, __pyx_t_5);
+      goto __pyx_L0;
+      __pyx_L5_exception_handled:;
+      __Pyx_XGIVEREF(__pyx_t_3);
+      __Pyx_XGIVEREF(__pyx_t_4);
+      __Pyx_XGIVEREF(__pyx_t_5);
+      __Pyx_ExceptionReset(__pyx_t_3, __pyx_t_4, __pyx_t_5);
+    }
+
+    /* "functions.pyx":352
+ *     threshold = getThreshold(val, alpha, U, L, beta, accepted)
+ * 
+ *     if threshold >= 0:             # <<<<<<<<<<<<<<
+ *         try:
+ *             target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+ */
+    goto __pyx_L3;
+  }
+
+  /* "functions.pyx":361
+ *             return (target - accepted)
+ *     else:
+ *         return 0             # <<<<<<<<<<<<<<
+ */
+  /*else*/ {
+    __pyx_r = 0.0;
+    goto __pyx_L0;
+  }
+  __pyx_L3:;
+
+  /* "functions.pyx":347
+ * 
+ * # helper for RORO algorithm
+ * cpdef float roroHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+
+  /* function exit code */
+  __pyx_r = 0;
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_6);
+  __Pyx_XDECREF(__pyx_t_7);
+  __Pyx_XDECREF(__pyx_t_8);
+  __Pyx_XDECREF(__pyx_t_9);
+  __Pyx_XDECREF(__pyx_t_10);
+  __Pyx_XDECREF(__pyx_t_11);
+  __Pyx_XDECREF(__pyx_t_12);
+  __Pyx_XDECREF(__pyx_t_13);
+  __Pyx_XDECREF(__pyx_t_14);
+  __Pyx_AddTraceback("functions.roroHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = -1;
+  __pyx_L0:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* Python wrapper */
+static PyObject *__pyx_pw_9functions_15roroHelper(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_9functions_15roroHelper = {"roroHelper", (PyCFunction)(void*)(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_9functions_15roroHelper, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_9functions_15roroHelper(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  float __pyx_v_val;
+  float __pyx_v_accepted;
+  float __pyx_v_alpha;
+  float __pyx_v_U;
+  float __pyx_v_L;
+  float __pyx_v_beta;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED const Py_ssize_t __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("roroHelper (wrapper)", 0);
+  {
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_val,&__pyx_n_s_accepted,&__pyx_n_s_alpha,&__pyx_n_s_U,&__pyx_n_s_L,&__pyx_n_s_beta,0};
+    PyObject* values[6] = {0,0,0,0,0,0};
+    if (__pyx_kwds) {
+      Py_ssize_t kw_args;
+      switch (__pyx_nargs) {
+        case  6: values[5] = __Pyx_Arg_FASTCALL(__pyx_args, 5);
+        CYTHON_FALLTHROUGH;
+        case  5: values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
+        CYTHON_FALLTHROUGH;
+        case  4: values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+        CYTHON_FALLTHROUGH;
+        case  3: values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+        CYTHON_FALLTHROUGH;
+        case  2: values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+        CYTHON_FALLTHROUGH;
+        case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_val)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  1:
+        if (likely((values[1] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_accepted)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroHelper", 1, 6, 6, 1); __PYX_ERR(0, 347, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  2:
+        if (likely((values[2] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_alpha)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroHelper", 1, 6, 6, 2); __PYX_ERR(0, 347, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  3:
+        if (likely((values[3] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_U)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroHelper", 1, 6, 6, 3); __PYX_ERR(0, 347, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  4:
+        if (likely((values[4] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_L)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroHelper", 1, 6, 6, 4); __PYX_ERR(0, 347, __pyx_L3_error)
+        }
+        CYTHON_FALLTHROUGH;
+        case  5:
+        if (likely((values[5] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_beta)) != 0)) kw_args--;
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+        else {
+          __Pyx_RaiseArgtupleInvalid("roroHelper", 1, 6, 6, 5); __PYX_ERR(0, 347, __pyx_L3_error)
+        }
+      }
+      if (unlikely(kw_args > 0)) {
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values + 0, kwd_pos_args, "roroHelper") < 0)) __PYX_ERR(0, 347, __pyx_L3_error)
+      }
+    } else if (unlikely(__pyx_nargs != 6)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
+      values[1] = __Pyx_Arg_FASTCALL(__pyx_args, 1);
+      values[2] = __Pyx_Arg_FASTCALL(__pyx_args, 2);
+      values[3] = __Pyx_Arg_FASTCALL(__pyx_args, 3);
+      values[4] = __Pyx_Arg_FASTCALL(__pyx_args, 4);
+      values[5] = __Pyx_Arg_FASTCALL(__pyx_args, 5);
+    }
+    __pyx_v_val = __pyx_PyFloat_AsFloat(values[0]); if (unlikely((__pyx_v_val == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+    __pyx_v_accepted = __pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_accepted == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+    __pyx_v_alpha = __pyx_PyFloat_AsFloat(values[2]); if (unlikely((__pyx_v_alpha == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+    __pyx_v_U = __pyx_PyFloat_AsFloat(values[3]); if (unlikely((__pyx_v_U == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+    __pyx_v_L = __pyx_PyFloat_AsFloat(values[4]); if (unlikely((__pyx_v_L == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+    __pyx_v_beta = __pyx_PyFloat_AsFloat(values[5]); if (unlikely((__pyx_v_beta == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L3_error)
+  }
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("roroHelper", 1, 6, 6, __pyx_nargs); __PYX_ERR(0, 347, __pyx_L3_error)
+  __pyx_L3_error:;
+  __Pyx_AddTraceback("functions.roroHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  __pyx_r = __pyx_pf_9functions_14roroHelper(__pyx_self, __pyx_v_val, __pyx_v_accepted, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta);
+
+  /* function exit code */
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_9functions_14roroHelper(CYTHON_UNUSED PyObject *__pyx_self, float __pyx_v_val, float __pyx_v_accepted, float __pyx_v_alpha, float __pyx_v_U, float __pyx_v_L, float __pyx_v_beta) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  float __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("roroHelper", 0);
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = __pyx_f_9functions_roroHelper(__pyx_v_val, __pyx_v_accepted, __pyx_v_alpha, __pyx_v_U, __pyx_v_L, __pyx_v_beta, 0); if (unlikely(__pyx_t_1 == ((float)-1) && PyErr_Occurred())) __PYX_ERR(0, 347, __pyx_L1_error)
+  __pyx_t_2 = PyFloat_FromDouble(__pyx_t_1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 347, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __pyx_r = __pyx_t_2;
+  __pyx_t_2 = 0;
+  goto __pyx_L0;
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_AddTraceback("functions.roroHelper", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = NULL;
   __pyx_L0:;
   __Pyx_XGIVEREF(__pyx_r);
@@ -4356,10 +6971,12 @@ static int __Pyx_CreateStringTabAndInitStrings(void) {
     {&__pyx_kp_u_Error_no_optimal_solution_found, __pyx_k_Error_no_optimal_solution_found, sizeof(__pyx_k_Error_no_optimal_solution_found), 0, 1, 0, 0},
     {&__pyx_n_s_L, __pyx_k_L, sizeof(__pyx_k_L), 0, 0, 1, 1},
     {&__pyx_n_s_U, __pyx_k_U, sizeof(__pyx_k_U), 0, 0, 1, 1},
-    {&__pyx_n_s__11, __pyx_k__11, sizeof(__pyx_k__11), 0, 0, 1, 1},
+    {&__pyx_n_s__19, __pyx_k__19, sizeof(__pyx_k__19), 0, 0, 1, 1},
     {&__pyx_n_s__3, __pyx_k__3, sizeof(__pyx_k__3), 0, 0, 1, 1},
     {&__pyx_kp_u__4, __pyx_k__4, sizeof(__pyx_k__4), 0, 1, 0, 0},
-    {&__pyx_n_s_array, __pyx_k_array, sizeof(__pyx_k_array), 0, 0, 1, 1},
+    {&__pyx_n_s_accepted, __pyx_k_accepted, sizeof(__pyx_k_accepted), 0, 0, 1, 1},
+    {&__pyx_n_s_alpha, __pyx_k_alpha, sizeof(__pyx_k_alpha), 0, 0, 1, 1},
+    {&__pyx_n_s_args, __pyx_k_args, sizeof(__pyx_k_args), 0, 0, 1, 1},
     {&__pyx_n_s_asyncio_coroutines, __pyx_k_asyncio_coroutines, sizeof(__pyx_k_asyncio_coroutines), 0, 0, 1, 1},
     {&__pyx_n_s_b_ub, __pyx_k_b_ub, sizeof(__pyx_k_b_ub), 0, 0, 1, 1},
     {&__pyx_n_s_beta, __pyx_k_beta, sizeof(__pyx_k_beta), 0, 0, 1, 1},
@@ -4368,12 +6985,16 @@ static int __Pyx_CreateStringTabAndInitStrings(void) {
     {&__pyx_n_s_cline_in_traceback, __pyx_k_cline_in_traceback, sizeof(__pyx_k_cline_in_traceback), 0, 0, 1, 1},
     {&__pyx_n_s_copy, __pyx_k_copy, sizeof(__pyx_k_copy), 0, 0, 1, 1},
     {&__pyx_n_s_cos, __pyx_k_cos, sizeof(__pyx_k_cos), 0, 0, 1, 1},
+    {&__pyx_n_s_e, __pyx_k_e, sizeof(__pyx_k_e), 0, 0, 1, 1},
     {&__pyx_n_s_end, __pyx_k_end, sizeof(__pyx_k_end), 0, 0, 1, 1},
     {&__pyx_n_s_enumerate, __pyx_k_enumerate, sizeof(__pyx_k_enumerate), 0, 0, 1, 1},
+    {&__pyx_n_s_exp, __pyx_k_exp, sizeof(__pyx_k_exp), 0, 0, 1, 1},
+    {&__pyx_n_s_format, __pyx_k_format, sizeof(__pyx_k_format), 0, 0, 1, 1},
     {&__pyx_n_s_fun, __pyx_k_fun, sizeof(__pyx_k_fun), 0, 0, 1, 1},
     {&__pyx_n_s_functions, __pyx_k_functions, sizeof(__pyx_k_functions), 0, 0, 1, 1},
     {&__pyx_kp_s_functions_pyx, __pyx_k_functions_pyx, sizeof(__pyx_k_functions_pyx), 0, 0, 1, 0},
     {&__pyx_n_s_generateSyntheticSequence, __pyx_k_generateSyntheticSequence, sizeof(__pyx_k_generateSyntheticSequence), 0, 0, 1, 1},
+    {&__pyx_n_s_getThreshold, __pyx_k_getThreshold, sizeof(__pyx_k_getThreshold), 0, 0, 1, 1},
     {&__pyx_kp_u_highs_ds, __pyx_k_highs_ds, sizeof(__pyx_k_highs_ds), 0, 1, 0, 0},
     {&__pyx_n_s_import, __pyx_k_import, sizeof(__pyx_k_import), 0, 0, 1, 1},
     {&__pyx_n_s_inf, __pyx_k_inf, sizeof(__pyx_k_inf), 0, 0, 1, 1},
@@ -4381,29 +7002,38 @@ static int __Pyx_CreateStringTabAndInitStrings(void) {
     {&__pyx_n_s_interval, __pyx_k_interval, sizeof(__pyx_k_interval), 0, 0, 1, 1},
     {&__pyx_n_s_is_coroutine, __pyx_k_is_coroutine, sizeof(__pyx_k_is_coroutine), 0, 0, 1, 1},
     {&__pyx_n_s_k, __pyx_k_k, sizeof(__pyx_k_k), 0, 0, 1, 1},
+    {&__pyx_n_s_lambertw, __pyx_k_lambertw, sizeof(__pyx_k_lambertw), 0, 0, 1, 1},
     {&__pyx_n_s_linprog, __pyx_k_linprog, sizeof(__pyx_k_linprog), 0, 0, 1, 1},
     {&__pyx_n_s_main, __pyx_k_main, sizeof(__pyx_k_main), 0, 0, 1, 1},
     {&__pyx_n_s_math, __pyx_k_math, sizeof(__pyx_k_math), 0, 0, 1, 1},
     {&__pyx_n_s_method, __pyx_k_method, sizeof(__pyx_k_method), 0, 0, 1, 1},
+    {&__pyx_n_s_minimize, __pyx_k_minimize, sizeof(__pyx_k_minimize), 0, 0, 1, 1},
     {&__pyx_n_s_name, __pyx_k_name, sizeof(__pyx_k_name), 0, 0, 1, 1},
     {&__pyx_n_s_np, __pyx_k_np, sizeof(__pyx_k_np), 0, 0, 1, 1},
     {&__pyx_n_s_numpy, __pyx_k_numpy, sizeof(__pyx_k_numpy), 0, 0, 1, 1},
     {&__pyx_n_s_oneMinOnline, __pyx_k_oneMinOnline, sizeof(__pyx_k_oneMinOnline), 0, 0, 1, 1},
-    {&__pyx_n_s_optimalSol, __pyx_k_optimalSol, sizeof(__pyx_k_optimalSol), 0, 0, 1, 1},
+    {&__pyx_n_s_optimalSolution, __pyx_k_optimalSolution, sizeof(__pyx_k_optimalSolution), 0, 0, 1, 1},
+    {&__pyx_n_s_owtHelper, __pyx_k_owtHelper, sizeof(__pyx_k_owtHelper), 0, 0, 1, 1},
+    {&__pyx_n_s_owtOnline, __pyx_k_owtOnline, sizeof(__pyx_k_owtOnline), 0, 0, 1, 1},
     {&__pyx_n_s_pandas, __pyx_k_pandas, sizeof(__pyx_k_pandas), 0, 0, 1, 1},
     {&__pyx_n_s_pd, __pyx_k_pd, sizeof(__pyx_k_pd), 0, 0, 1, 1},
     {&__pyx_n_s_pickle, __pyx_k_pickle, sizeof(__pyx_k_pickle), 0, 0, 1, 1},
     {&__pyx_n_s_print, __pyx_k_print, sizeof(__pyx_k_print), 0, 0, 1, 1},
     {&__pyx_n_s_random, __pyx_k_random, sizeof(__pyx_k_random), 0, 0, 1, 1},
     {&__pyx_n_s_range, __pyx_k_range, sizeof(__pyx_k_range), 0, 0, 1, 1},
+    {&__pyx_n_s_roroHelper, __pyx_k_roroHelper, sizeof(__pyx_k_roroHelper), 0, 0, 1, 1},
+    {&__pyx_n_s_roroOnline, __pyx_k_roroOnline, sizeof(__pyx_k_roroOnline), 0, 0, 1, 1},
     {&__pyx_n_s_scipy_optimize, __pyx_k_scipy_optimize, sizeof(__pyx_k_scipy_optimize), 0, 0, 1, 1},
+    {&__pyx_n_s_scipy_special, __pyx_k_scipy_special, sizeof(__pyx_k_scipy_special), 0, 0, 1, 1},
+    {&__pyx_kp_u_something_went_wrong_here_w_j, __pyx_k_something_went_wrong_here_w_j, sizeof(__pyx_k_something_went_wrong_here_w_j), 0, 1, 0, 0},
     {&__pyx_n_s_spec, __pyx_k_spec, sizeof(__pyx_k_spec), 0, 0, 1, 1},
     {&__pyx_n_s_sqrt, __pyx_k_sqrt, sizeof(__pyx_k_sqrt), 0, 0, 1, 1},
     {&__pyx_n_s_start, __pyx_k_start, sizeof(__pyx_k_start), 0, 0, 1, 1},
     {&__pyx_n_s_status, __pyx_k_status, sizeof(__pyx_k_status), 0, 0, 1, 1},
     {&__pyx_n_s_test, __pyx_k_test, sizeof(__pyx_k_test), 0, 0, 1, 1},
-    {&__pyx_n_s_tolist, __pyx_k_tolist, sizeof(__pyx_k_tolist), 0, 0, 1, 1},
+    {&__pyx_n_s_val, __pyx_k_val, sizeof(__pyx_k_val), 0, 0, 1, 1},
     {&__pyx_n_s_vals, __pyx_k_vals, sizeof(__pyx_k_vals), 0, 0, 1, 1},
+    {&__pyx_n_s_w, __pyx_k_w, sizeof(__pyx_k_w), 0, 0, 1, 1},
     {&__pyx_n_s_x, __pyx_k_x, sizeof(__pyx_k_x), 0, 0, 1, 1},
     {0, 0, 0, 0, 0, 0, 0}
   };
@@ -4411,9 +7041,9 @@ static int __Pyx_CreateStringTabAndInitStrings(void) {
 }
 /* #### Code section: cached_builtins ### */
 static CYTHON_SMALL_CODE int __Pyx_InitCachedBuiltins(void) {
-  __pyx_builtin_enumerate = __Pyx_GetBuiltinName(__pyx_n_s_enumerate); if (!__pyx_builtin_enumerate) __PYX_ERR(0, 108, __pyx_L1_error)
-  __pyx_builtin_range = __Pyx_GetBuiltinName(__pyx_n_s_range); if (!__pyx_builtin_range) __PYX_ERR(0, 131, __pyx_L1_error)
-  __pyx_builtin_print = __Pyx_GetBuiltinName(__pyx_n_s_print); if (!__pyx_builtin_print) __PYX_ERR(0, 213, __pyx_L1_error)
+  __pyx_builtin_enumerate = __Pyx_GetBuiltinName(__pyx_n_s_enumerate); if (!__pyx_builtin_enumerate) __PYX_ERR(0, 109, __pyx_L1_error)
+  __pyx_builtin_range = __Pyx_GetBuiltinName(__pyx_n_s_range); if (!__pyx_builtin_range) __PYX_ERR(0, 135, __pyx_L1_error)
+  __pyx_builtin_print = __Pyx_GetBuiltinName(__pyx_n_s_print); if (!__pyx_builtin_print) __PYX_ERR(0, 224, __pyx_L1_error)
   return 0;
   __pyx_L1_error:;
   return -1;
@@ -4435,51 +7065,106 @@ static CYTHON_SMALL_CODE int __Pyx_InitCachedConstants(void) {
   __Pyx_GOTREF(__pyx_tuple_);
   __Pyx_GIVEREF(__pyx_tuple_);
 
-  /* "functions.pyx":227
+  /* "functions.pyx":224
  *         return results.x, results.fun
  *     else:
  *         print("Error: no optimal solution found.")             # <<<<<<<<<<<<<<
  *         return [], math.inf
+ * 
  */
-  __pyx_tuple__2 = PyTuple_Pack(1, __pyx_kp_u_Error_no_optimal_solution_found); if (unlikely(!__pyx_tuple__2)) __PYX_ERR(0, 227, __pyx_L1_error)
+  __pyx_tuple__2 = PyTuple_Pack(1, __pyx_kp_u_Error_no_optimal_solution_found); if (unlikely(!__pyx_tuple__2)) __PYX_ERR(0, 224, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_tuple__2);
   __Pyx_GIVEREF(__pyx_tuple__2);
 
-  /* "functions.pyx":90
+  /* "functions.pyx":92
  * # length of job             -- k
  * # switching cost            -- beta
  * cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float beta):             # <<<<<<<<<<<<<<
- *     cdef int accepted, lastElem, i
+ *     cdef int lastElem, i
  *     cdef bint accept, prevAccepted
  */
-  __pyx_tuple__5 = PyTuple_Pack(5, __pyx_n_s_vals, __pyx_n_s_k, __pyx_n_s_U, __pyx_n_s_L, __pyx_n_s_beta); if (unlikely(!__pyx_tuple__5)) __PYX_ERR(0, 90, __pyx_L1_error)
+  __pyx_tuple__5 = PyTuple_Pack(5, __pyx_n_s_vals, __pyx_n_s_k, __pyx_n_s_U, __pyx_n_s_L, __pyx_n_s_beta); if (unlikely(!__pyx_tuple__5)) __PYX_ERR(0, 92, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_tuple__5);
   __Pyx_GIVEREF(__pyx_tuple__5);
-  __pyx_codeobj__6 = (PyObject*)__Pyx_PyCode_New(5, 0, 0, 5, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__5, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_oneMinOnline, 90, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__6)) __PYX_ERR(0, 90, __pyx_L1_error)
+  __pyx_codeobj__6 = (PyObject*)__Pyx_PyCode_New(5, 0, 0, 5, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__5, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_oneMinOnline, 92, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__6)) __PYX_ERR(0, 92, __pyx_L1_error)
 
-  /* "functions.pyx":142
+  /* "functions.pyx":147
  *     return (5.1 + 5 * math.cos(x/3.8))
  * 
  * cpdef list generateSyntheticSequence(float start, float end, float interval):             # <<<<<<<<<<<<<<
  *     cdef list sequence
  *     cdef float cur, noise
  */
-  __pyx_tuple__7 = PyTuple_Pack(3, __pyx_n_s_start, __pyx_n_s_end, __pyx_n_s_interval); if (unlikely(!__pyx_tuple__7)) __PYX_ERR(0, 142, __pyx_L1_error)
+  __pyx_tuple__7 = PyTuple_Pack(3, __pyx_n_s_start, __pyx_n_s_end, __pyx_n_s_interval); if (unlikely(!__pyx_tuple__7)) __PYX_ERR(0, 147, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_tuple__7);
   __Pyx_GIVEREF(__pyx_tuple__7);
-  __pyx_codeobj__8 = (PyObject*)__Pyx_PyCode_New(3, 0, 0, 3, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__7, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_generateSyntheticSequence, 142, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__8)) __PYX_ERR(0, 142, __pyx_L1_error)
+  __pyx_codeobj__8 = (PyObject*)__Pyx_PyCode_New(3, 0, 0, 3, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__7, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_generateSyntheticSequence, 147, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__8)) __PYX_ERR(0, 147, __pyx_L1_error)
 
-  /* "functions.pyx":162
+  /* "functions.pyx":163
  * 
  * 
- * cpdef tuple[list, float] optimalSol(list vals, float beta):             # <<<<<<<<<<<<<<
+ * cpdef tuple[list, float] optimalSolution(list vals, float beta):             # <<<<<<<<<<<<<<
  *     cdef int n, dim, i
  *     cdef list c, A, b, row, all_bounds
  */
-  __pyx_tuple__9 = PyTuple_Pack(2, __pyx_n_s_vals, __pyx_n_s_beta); if (unlikely(!__pyx_tuple__9)) __PYX_ERR(0, 162, __pyx_L1_error)
+  __pyx_tuple__9 = PyTuple_Pack(2, __pyx_n_s_vals, __pyx_n_s_beta); if (unlikely(!__pyx_tuple__9)) __PYX_ERR(0, 163, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_tuple__9);
   __Pyx_GIVEREF(__pyx_tuple__9);
-  __pyx_codeobj__10 = (PyObject*)__Pyx_PyCode_New(2, 0, 0, 2, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__9, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_optimalSol, 162, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__10)) __PYX_ERR(0, 162, __pyx_L1_error)
+  __pyx_codeobj__10 = (PyObject*)__Pyx_PyCode_New(2, 0, 0, 2, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__9, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_optimalSolution, 163, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__10)) __PYX_ERR(0, 163, __pyx_L1_error)
+
+  /* "functions.pyx":233
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+  __pyx_tuple__11 = PyTuple_Pack(4, __pyx_n_s_vals, __pyx_n_s_U, __pyx_n_s_L, __pyx_n_s_beta); if (unlikely(!__pyx_tuple__11)) __PYX_ERR(0, 233, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_tuple__11);
+  __Pyx_GIVEREF(__pyx_tuple__11);
+  __pyx_codeobj__12 = (PyObject*)__Pyx_PyCode_New(4, 0, 0, 4, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__11, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_owtOnline, 233, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__12)) __PYX_ERR(0, 233, __pyx_L1_error)
+
+  /* "functions.pyx":277
+ * 
+ * # helper for one-way trading algorithm
+ * cpdef float owtHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+  __pyx_tuple__13 = PyTuple_Pack(6, __pyx_n_s_val, __pyx_n_s_accepted, __pyx_n_s_alpha, __pyx_n_s_U, __pyx_n_s_L, __pyx_n_s_beta); if (unlikely(!__pyx_tuple__13)) __PYX_ERR(0, 277, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_tuple__13);
+  __Pyx_GIVEREF(__pyx_tuple__13);
+  __pyx_codeobj__14 = (PyObject*)__Pyx_PyCode_New(6, 0, 0, 6, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__13, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_owtHelper, 277, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__14)) __PYX_ERR(0, 277, __pyx_L1_error)
+
+  /* "functions.pyx":294
+ * 
+ * # note that when beta = 0, this is exactly the same as the OWT threshold
+ * cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):             # <<<<<<<<<<<<<<
+ *     return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val
+ * 
+ */
+  __pyx_tuple__15 = PyTuple_Pack(6, __pyx_n_s_val, __pyx_n_s_alpha, __pyx_n_s_U, __pyx_n_s_L, __pyx_n_s_beta, __pyx_n_s_w); if (unlikely(!__pyx_tuple__15)) __PYX_ERR(0, 294, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_tuple__15);
+  __Pyx_GIVEREF(__pyx_tuple__15);
+  __pyx_codeobj__16 = (PyObject*)__Pyx_PyCode_New(6, 0, 0, 6, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__15, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_getThreshold, 294, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__16)) __PYX_ERR(0, 294, __pyx_L1_error)
+
+  /* "functions.pyx":303
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+  __pyx_codeobj__17 = (PyObject*)__Pyx_PyCode_New(4, 0, 0, 4, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__11, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_roroOnline, 303, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__17)) __PYX_ERR(0, 303, __pyx_L1_error)
+
+  /* "functions.pyx":347
+ * 
+ * # helper for RORO algorithm
+ * cpdef float roroHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+  __pyx_codeobj__18 = (PyObject*)__Pyx_PyCode_New(6, 0, 0, 6, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__13, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_functions_pyx, __pyx_n_s_roroHelper, 347, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__18)) __PYX_ERR(0, 347, __pyx_L1_error)
   __Pyx_RefNannyFinishContext();
   return 0;
   __pyx_L1_error:;
@@ -4491,8 +7176,6 @@ static CYTHON_SMALL_CODE int __Pyx_InitCachedConstants(void) {
 static CYTHON_SMALL_CODE int __Pyx_InitConstants(void) {
   __pyx_umethod_PyList_Type_copy.type = (PyObject*)&PyList_Type;
   __pyx_umethod_PyList_Type_copy.method_name = &__pyx_n_s_copy;
-  __pyx_umethod_PyList_Type_tolist.type = (PyObject*)&PyList_Type;
-  __pyx_umethod_PyList_Type_tolist.method_name = &__pyx_n_s_tolist;
   if (__Pyx_CreateStringTabAndInitStrings() < 0) __PYX_ERR(0, 1, __pyx_L1_error);
   __pyx_float_5_1 = PyFloat_FromDouble(5.1); if (unlikely(!__pyx_float_5_1)) __PYX_ERR(0, 1, __pyx_L1_error)
   __pyx_int_0 = PyInt_FromLong(0); if (unlikely(!__pyx_int_0)) __PYX_ERR(0, 1, __pyx_L1_error)
@@ -4869,7 +7552,7 @@ if (!__Pyx_RefNanny) {
  * import random
  * import math             # <<<<<<<<<<<<<<
  * from scipy.optimize import linprog
- * import numpy as np
+ * from scipy.optimize import minimize
  */
   __pyx_t_2 = __Pyx_ImportDottedModule(__pyx_n_s_math, NULL); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
@@ -4880,8 +7563,8 @@ if (!__Pyx_RefNanny) {
  * import random
  * import math
  * from scipy.optimize import linprog             # <<<<<<<<<<<<<<
- * import numpy as np
- * import pandas as pd
+ * from scipy.optimize import minimize
+ * from scipy.special import lambertw
  */
   __pyx_t_2 = PyList_New(1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
@@ -4900,73 +7583,175 @@ if (!__Pyx_RefNanny) {
   /* "functions.pyx":4
  * import math
  * from scipy.optimize import linprog
+ * from scipy.optimize import minimize             # <<<<<<<<<<<<<<
+ * from scipy.special import lambertw
+ * import numpy as np
+ */
+  __pyx_t_3 = PyList_New(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 4, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __Pyx_INCREF(__pyx_n_s_minimize);
+  __Pyx_GIVEREF(__pyx_n_s_minimize);
+  PyList_SET_ITEM(__pyx_t_3, 0, __pyx_n_s_minimize);
+  __pyx_t_2 = __Pyx_Import(__pyx_n_s_scipy_optimize, __pyx_t_3, 0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 4, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __pyx_t_3 = __Pyx_ImportFrom(__pyx_t_2, __pyx_n_s_minimize); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 4, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_minimize, __pyx_t_3) < 0) __PYX_ERR(0, 4, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+  /* "functions.pyx":5
+ * from scipy.optimize import linprog
+ * from scipy.optimize import minimize
+ * from scipy.special import lambertw             # <<<<<<<<<<<<<<
+ * import numpy as np
+ * import pandas as pd
+ */
+  __pyx_t_2 = PyList_New(1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 5, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __Pyx_INCREF(__pyx_n_s_lambertw);
+  __Pyx_GIVEREF(__pyx_n_s_lambertw);
+  PyList_SET_ITEM(__pyx_t_2, 0, __pyx_n_s_lambertw);
+  __pyx_t_3 = __Pyx_Import(__pyx_n_s_scipy_special, __pyx_t_2, 0); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 5, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __pyx_t_2 = __Pyx_ImportFrom(__pyx_t_3, __pyx_n_s_lambertw); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 5, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_lambertw, __pyx_t_2) < 0) __PYX_ERR(0, 5, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+  /* "functions.pyx":6
+ * from scipy.optimize import minimize
+ * from scipy.special import lambertw
  * import numpy as np             # <<<<<<<<<<<<<<
  * import pandas as pd
  * import pickle
  */
-  __pyx_t_3 = __Pyx_ImportDottedModule(__pyx_n_s_numpy, NULL); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 4, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_ImportDottedModule(__pyx_n_s_numpy, NULL); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 6, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  if (PyDict_SetItem(__pyx_d, __pyx_n_s_np, __pyx_t_3) < 0) __PYX_ERR(0, 4, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_np, __pyx_t_3) < 0) __PYX_ERR(0, 6, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-  /* "functions.pyx":5
- * from scipy.optimize import linprog
+  /* "functions.pyx":7
+ * from scipy.special import lambertw
  * import numpy as np
  * import pandas as pd             # <<<<<<<<<<<<<<
  * import pickle
  * 
  */
-  __pyx_t_3 = __Pyx_ImportDottedModule(__pyx_n_s_pandas, NULL); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 5, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_ImportDottedModule(__pyx_n_s_pandas, NULL); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 7, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  if (PyDict_SetItem(__pyx_d, __pyx_n_s_pd, __pyx_t_3) < 0) __PYX_ERR(0, 5, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_pd, __pyx_t_3) < 0) __PYX_ERR(0, 7, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-  /* "functions.pyx":6
+  /* "functions.pyx":8
  * import numpy as np
  * import pandas as pd
  * import pickle             # <<<<<<<<<<<<<<
  * 
  * # def randomInterval(df, T, noiseFactor=0):
  */
-  __pyx_t_3 = __Pyx_ImportDottedModule(__pyx_n_s_pickle, NULL); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 6, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_ImportDottedModule(__pyx_n_s_pickle, NULL); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 8, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  if (PyDict_SetItem(__pyx_d, __pyx_n_s_pickle, __pyx_t_3) < 0) __PYX_ERR(0, 6, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_pickle, __pyx_t_3) < 0) __PYX_ERR(0, 8, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-  /* "functions.pyx":90
+  /* "functions.pyx":92
  * # length of job             -- k
  * # switching cost            -- beta
  * cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float beta):             # <<<<<<<<<<<<<<
- *     cdef int accepted, lastElem, i
+ *     cdef int lastElem, i
  *     cdef bint accept, prevAccepted
  */
-  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_1oneMinOnline, 0, __pyx_n_s_oneMinOnline, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__6)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 90, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_1oneMinOnline, 0, __pyx_n_s_oneMinOnline, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__6)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 92, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  if (PyDict_SetItem(__pyx_d, __pyx_n_s_oneMinOnline, __pyx_t_3) < 0) __PYX_ERR(0, 90, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_oneMinOnline, __pyx_t_3) < 0) __PYX_ERR(0, 92, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-  /* "functions.pyx":142
+  /* "functions.pyx":147
  *     return (5.1 + 5 * math.cos(x/3.8))
  * 
  * cpdef list generateSyntheticSequence(float start, float end, float interval):             # <<<<<<<<<<<<<<
  *     cdef list sequence
  *     cdef float cur, noise
  */
-  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_3generateSyntheticSequence, 0, __pyx_n_s_generateSyntheticSequence, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__8)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 142, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_3generateSyntheticSequence, 0, __pyx_n_s_generateSyntheticSequence, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__8)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 147, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  if (PyDict_SetItem(__pyx_d, __pyx_n_s_generateSyntheticSequence, __pyx_t_3) < 0) __PYX_ERR(0, 142, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_generateSyntheticSequence, __pyx_t_3) < 0) __PYX_ERR(0, 147, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-  /* "functions.pyx":162
+  /* "functions.pyx":163
  * 
  * 
- * cpdef tuple[list, float] optimalSol(list vals, float beta):             # <<<<<<<<<<<<<<
+ * cpdef tuple[list, float] optimalSolution(list vals, float beta):             # <<<<<<<<<<<<<<
  *     cdef int n, dim, i
  *     cdef list c, A, b, row, all_bounds
  */
-  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_5optimalSol, 0, __pyx_n_s_optimalSol, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__10)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 162, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_5optimalSolution, 0, __pyx_n_s_optimalSolution, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__10)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 163, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  if (PyDict_SetItem(__pyx_d, __pyx_n_s_optimalSol, __pyx_t_3) < 0) __PYX_ERR(0, 162, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_optimalSolution, __pyx_t_3) < 0) __PYX_ERR(0, 163, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+  /* "functions.pyx":233
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_7owtOnline, 0, __pyx_n_s_owtOnline, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__12)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 233, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_owtOnline, __pyx_t_3) < 0) __PYX_ERR(0, 233, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+  /* "functions.pyx":277
+ * 
+ * # helper for one-way trading algorithm
+ * cpdef float owtHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_9owtHelper, 0, __pyx_n_s_owtHelper, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__14)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 277, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_owtHelper, __pyx_t_3) < 0) __PYX_ERR(0, 277, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+  /* "functions.pyx":294
+ * 
+ * # note that when beta = 0, this is exactly the same as the OWT threshold
+ * cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):             # <<<<<<<<<<<<<<
+ *     return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val
+ * 
+ */
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_11getThreshold, 0, __pyx_n_s_getThreshold, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__16)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 294, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_getThreshold, __pyx_t_3) < 0) __PYX_ERR(0, 294, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+  /* "functions.pyx":303
+ * # length of job             -- k
+ * # switching cost            -- beta
+ * cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef int i
+ *     cdef list sol
+ */
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_13roroOnline, 0, __pyx_n_s_roroOnline, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__17)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 303, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_roroOnline, __pyx_t_3) < 0) __PYX_ERR(0, 303, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+
+  /* "functions.pyx":347
+ * 
+ * # helper for RORO algorithm
+ * cpdef float roroHelper(float val, float accepted, float alpha, float U, float L, float beta):             # <<<<<<<<<<<<<<
+ *     cdef float threshold, target
+ * 
+ */
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_9functions_15roroHelper, 0, __pyx_n_s_roroHelper, NULL, __pyx_n_s_functions, __pyx_d, ((PyObject *)__pyx_codeobj__18)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 347, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  if (PyDict_SetItem(__pyx_d, __pyx_n_s_roroHelper, __pyx_t_3) < 0) __PYX_ERR(0, 347, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
   /* "functions.pyx":1
@@ -6216,15 +9001,62 @@ static PyObject* __Pyx_PyInt_MultiplyCObj(PyObject *op1, PyObject *op2, long int
 }
 #endif
 
-/* RaiseUnexpectedTypeError */
-static int
-__Pyx_RaiseUnexpectedTypeError(const char *expected, PyObject *obj)
-{
-    __Pyx_TypeName obj_type_name = __Pyx_PyType_GetName(Py_TYPE(obj));
-    PyErr_Format(PyExc_TypeError, "Expected %s, got " __Pyx_FMT_TYPENAME,
-                 expected, obj_type_name);
-    __Pyx_DECREF_TypeName(obj_type_name);
-    return 0;
+/* SetItemInt */
+static int __Pyx_SetItemInt_Generic(PyObject *o, PyObject *j, PyObject *v) {
+    int r;
+    if (unlikely(!j)) return -1;
+    r = PyObject_SetItem(o, j, v);
+    Py_DECREF(j);
+    return r;
+}
+static CYTHON_INLINE int __Pyx_SetItemInt_Fast(PyObject *o, Py_ssize_t i, PyObject *v, int is_list,
+                                               CYTHON_NCP_UNUSED int wraparound, CYTHON_NCP_UNUSED int boundscheck) {
+#if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS && CYTHON_USE_TYPE_SLOTS
+    if (is_list || PyList_CheckExact(o)) {
+        Py_ssize_t n = (!wraparound) ? i : ((likely(i >= 0)) ? i : i + PyList_GET_SIZE(o));
+        if ((!boundscheck) || likely(__Pyx_is_valid_index(n, PyList_GET_SIZE(o)))) {
+            PyObject* old = PyList_GET_ITEM(o, n);
+            Py_INCREF(v);
+            PyList_SET_ITEM(o, n, v);
+            Py_DECREF(old);
+            return 1;
+        }
+    } else {
+        PyMappingMethods *mm = Py_TYPE(o)->tp_as_mapping;
+        PySequenceMethods *sm = Py_TYPE(o)->tp_as_sequence;
+        if (mm && mm->mp_ass_subscript) {
+            int r;
+            PyObject *key = PyInt_FromSsize_t(i);
+            if (unlikely(!key)) return -1;
+            r = mm->mp_ass_subscript(o, key, v);
+            Py_DECREF(key);
+            return r;
+        }
+        if (likely(sm && sm->sq_ass_item)) {
+            if (wraparound && unlikely(i < 0) && likely(sm->sq_length)) {
+                Py_ssize_t l = sm->sq_length(o);
+                if (likely(l >= 0)) {
+                    i += l;
+                } else {
+                    if (!PyErr_ExceptionMatches(PyExc_OverflowError))
+                        return -1;
+                    PyErr_Clear();
+                }
+            }
+            return sm->sq_ass_item(o, i, v);
+        }
+    }
+#else
+#if CYTHON_COMPILING_IN_PYPY
+    if (is_list || (PySequence_Check(o) && !PyDict_Check(o)))
+#else
+    if (is_list || PySequence_Check(o))
+#endif
+    {
+        return PySequence_SetItem(o, i, v);
+    }
+#endif
+    return __Pyx_SetItemInt_Generic(o, PyInt_FromSsize_t(i), v);
 }
 
 /* UnpackUnboundCMethod */
@@ -6309,70 +9141,6 @@ bad:
     return result;
 }
 
-/* SetItemInt */
-static int __Pyx_SetItemInt_Generic(PyObject *o, PyObject *j, PyObject *v) {
-    int r;
-    if (unlikely(!j)) return -1;
-    r = PyObject_SetItem(o, j, v);
-    Py_DECREF(j);
-    return r;
-}
-static CYTHON_INLINE int __Pyx_SetItemInt_Fast(PyObject *o, Py_ssize_t i, PyObject *v, int is_list,
-                                               CYTHON_NCP_UNUSED int wraparound, CYTHON_NCP_UNUSED int boundscheck) {
-#if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS && CYTHON_USE_TYPE_SLOTS
-    if (is_list || PyList_CheckExact(o)) {
-        Py_ssize_t n = (!wraparound) ? i : ((likely(i >= 0)) ? i : i + PyList_GET_SIZE(o));
-        if ((!boundscheck) || likely(__Pyx_is_valid_index(n, PyList_GET_SIZE(o)))) {
-            PyObject* old = PyList_GET_ITEM(o, n);
-            Py_INCREF(v);
-            PyList_SET_ITEM(o, n, v);
-            Py_DECREF(old);
-            return 1;
-        }
-    } else {
-        PyMappingMethods *mm = Py_TYPE(o)->tp_as_mapping;
-        PySequenceMethods *sm = Py_TYPE(o)->tp_as_sequence;
-        if (mm && mm->mp_ass_subscript) {
-            int r;
-            PyObject *key = PyInt_FromSsize_t(i);
-            if (unlikely(!key)) return -1;
-            r = mm->mp_ass_subscript(o, key, v);
-            Py_DECREF(key);
-            return r;
-        }
-        if (likely(sm && sm->sq_ass_item)) {
-            if (wraparound && unlikely(i < 0) && likely(sm->sq_length)) {
-                Py_ssize_t l = sm->sq_length(o);
-                if (likely(l >= 0)) {
-                    i += l;
-                } else {
-                    if (!PyErr_ExceptionMatches(PyExc_OverflowError))
-                        return -1;
-                    PyErr_Clear();
-                }
-            }
-            return sm->sq_ass_item(o, i, v);
-        }
-    }
-#else
-#if CYTHON_COMPILING_IN_PYPY
-    if (is_list || (PySequence_Check(o) && !PyDict_Check(o)))
-#else
-    if (is_list || PySequence_Check(o))
-#endif
-    {
-        return PySequence_SetItem(o, i, v);
-    }
-#endif
-    return __Pyx_SetItemInt_Generic(o, PyInt_FromSsize_t(i), v);
-}
-
-/* PyObjectCallOneArg */
-static CYTHON_INLINE PyObject* __Pyx_PyObject_CallOneArg(PyObject *func, PyObject *arg) {
-    PyObject *args[2] = {NULL, arg};
-    return __Pyx_PyObject_FastCall(func, args+1, 1 | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET);
-}
-
 /* PyIntCompare */
 static CYTHON_INLINE int __Pyx_PyInt_BoolEqObjC(PyObject *op1, PyObject *op2, long intval, long inplace) {
     CYTHON_MAYBE_UNUSED_VAR(intval);
@@ -6443,6 +9211,352 @@ static CYTHON_INLINE int __Pyx_PyInt_BoolEqObjC(PyObject *op1, PyObject *op2, lo
     }
     return __Pyx_PyObject_IsTrueAndDecref(
         PyObject_RichCompare(op1, op2, Py_EQ));
+}
+
+/* PyIntBinop */
+#if !CYTHON_COMPILING_IN_PYPY
+static PyObject* __Pyx_PyInt_AddCObj(PyObject *op1, PyObject *op2, long intval, int inplace, int zerodivision_check) {
+    CYTHON_MAYBE_UNUSED_VAR(intval);
+    CYTHON_MAYBE_UNUSED_VAR(inplace);
+    CYTHON_UNUSED_VAR(zerodivision_check);
+    #if PY_MAJOR_VERSION < 3
+    if (likely(PyInt_CheckExact(op2))) {
+        const long a = intval;
+        long x;
+        long b = PyInt_AS_LONG(op2);
+        
+            x = (long)((unsigned long)a + (unsigned long)b);
+            if (likely((x^a) >= 0 || (x^b) >= 0))
+                return PyInt_FromLong(x);
+            return PyLong_Type.tp_as_number->nb_add(op1, op2);
+    }
+    #endif
+    #if CYTHON_USE_PYLONG_INTERNALS
+    if (likely(PyLong_CheckExact(op2))) {
+        const long a = intval;
+        long b, x;
+#ifdef HAVE_LONG_LONG
+        const PY_LONG_LONG lla = intval;
+        PY_LONG_LONG llb, llx;
+#endif
+        if (unlikely(__Pyx_PyLong_IsZero(op2))) {
+            return __Pyx_NewRef(op1);
+        }
+        if (likely(__Pyx_PyLong_IsCompact(op2))) {
+            b = __Pyx_PyLong_CompactValue(op2);
+        } else {
+            const digit* digits = __Pyx_PyLong_Digits(op2);
+            const Py_ssize_t size = __Pyx_PyLong_SignedDigitCount(op2);
+            switch (size) {
+                case -2:
+                    if (8 * sizeof(long) - 1 > 2 * PyLong_SHIFT) {
+                        b = -(long) (((((unsigned long)digits[1]) << PyLong_SHIFT) | (unsigned long)digits[0]));
+                        break;
+                    #ifdef HAVE_LONG_LONG
+                    } else if (8 * sizeof(PY_LONG_LONG) - 1 > 2 * PyLong_SHIFT) {
+                        llb = -(PY_LONG_LONG) (((((unsigned PY_LONG_LONG)digits[1]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[0]));
+                        goto long_long;
+                    #endif
+                    }
+                    CYTHON_FALLTHROUGH;
+                case 2:
+                    if (8 * sizeof(long) - 1 > 2 * PyLong_SHIFT) {
+                        b = (long) (((((unsigned long)digits[1]) << PyLong_SHIFT) | (unsigned long)digits[0]));
+                        break;
+                    #ifdef HAVE_LONG_LONG
+                    } else if (8 * sizeof(PY_LONG_LONG) - 1 > 2 * PyLong_SHIFT) {
+                        llb = (PY_LONG_LONG) (((((unsigned PY_LONG_LONG)digits[1]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[0]));
+                        goto long_long;
+                    #endif
+                    }
+                    CYTHON_FALLTHROUGH;
+                case -3:
+                    if (8 * sizeof(long) - 1 > 3 * PyLong_SHIFT) {
+                        b = -(long) (((((((unsigned long)digits[2]) << PyLong_SHIFT) | (unsigned long)digits[1]) << PyLong_SHIFT) | (unsigned long)digits[0]));
+                        break;
+                    #ifdef HAVE_LONG_LONG
+                    } else if (8 * sizeof(PY_LONG_LONG) - 1 > 3 * PyLong_SHIFT) {
+                        llb = -(PY_LONG_LONG) (((((((unsigned PY_LONG_LONG)digits[2]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[1]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[0]));
+                        goto long_long;
+                    #endif
+                    }
+                    CYTHON_FALLTHROUGH;
+                case 3:
+                    if (8 * sizeof(long) - 1 > 3 * PyLong_SHIFT) {
+                        b = (long) (((((((unsigned long)digits[2]) << PyLong_SHIFT) | (unsigned long)digits[1]) << PyLong_SHIFT) | (unsigned long)digits[0]));
+                        break;
+                    #ifdef HAVE_LONG_LONG
+                    } else if (8 * sizeof(PY_LONG_LONG) - 1 > 3 * PyLong_SHIFT) {
+                        llb = (PY_LONG_LONG) (((((((unsigned PY_LONG_LONG)digits[2]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[1]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[0]));
+                        goto long_long;
+                    #endif
+                    }
+                    CYTHON_FALLTHROUGH;
+                case -4:
+                    if (8 * sizeof(long) - 1 > 4 * PyLong_SHIFT) {
+                        b = -(long) (((((((((unsigned long)digits[3]) << PyLong_SHIFT) | (unsigned long)digits[2]) << PyLong_SHIFT) | (unsigned long)digits[1]) << PyLong_SHIFT) | (unsigned long)digits[0]));
+                        break;
+                    #ifdef HAVE_LONG_LONG
+                    } else if (8 * sizeof(PY_LONG_LONG) - 1 > 4 * PyLong_SHIFT) {
+                        llb = -(PY_LONG_LONG) (((((((((unsigned PY_LONG_LONG)digits[3]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[2]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[1]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[0]));
+                        goto long_long;
+                    #endif
+                    }
+                    CYTHON_FALLTHROUGH;
+                case 4:
+                    if (8 * sizeof(long) - 1 > 4 * PyLong_SHIFT) {
+                        b = (long) (((((((((unsigned long)digits[3]) << PyLong_SHIFT) | (unsigned long)digits[2]) << PyLong_SHIFT) | (unsigned long)digits[1]) << PyLong_SHIFT) | (unsigned long)digits[0]));
+                        break;
+                    #ifdef HAVE_LONG_LONG
+                    } else if (8 * sizeof(PY_LONG_LONG) - 1 > 4 * PyLong_SHIFT) {
+                        llb = (PY_LONG_LONG) (((((((((unsigned PY_LONG_LONG)digits[3]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[2]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[1]) << PyLong_SHIFT) | (unsigned PY_LONG_LONG)digits[0]));
+                        goto long_long;
+                    #endif
+                    }
+                    CYTHON_FALLTHROUGH;
+                default: return PyLong_Type.tp_as_number->nb_add(op1, op2);
+            }
+        }
+                x = a + b;
+            return PyLong_FromLong(x);
+#ifdef HAVE_LONG_LONG
+        long_long:
+                llx = lla + llb;
+            return PyLong_FromLongLong(llx);
+#endif
+        
+        
+    }
+    #endif
+    if (PyFloat_CheckExact(op2)) {
+        const long a = intval;
+#if CYTHON_COMPILING_IN_LIMITED_API
+        double b = __pyx_PyFloat_AsDouble(op2);
+#else
+        double b = PyFloat_AS_DOUBLE(op2);
+#endif
+            double result;
+            
+            PyFPE_START_PROTECT("add", return NULL)
+            result = ((double)a) + (double)b;
+            PyFPE_END_PROTECT(result)
+            return PyFloat_FromDouble(result);
+    }
+    return (inplace ? PyNumber_InPlaceAdd : PyNumber_Add)(op1, op2);
+}
+#endif
+
+/* py_abs */
+#if CYTHON_USE_PYLONG_INTERNALS
+static PyObject *__Pyx_PyLong_AbsNeg(PyObject *n) {
+#if PY_VERSION_HEX >= 0x030C00A7
+    if (likely(__Pyx_PyLong_IsCompact(n))) {
+        return PyLong_FromSize_t(__Pyx_PyLong_CompactValueUnsigned(n));
+    }
+#else
+    if (likely(Py_SIZE(n) == -1)) {
+        return PyLong_FromUnsignedLong(__Pyx_PyLong_Digits(n)[0]);
+    }
+#endif
+#if CYTHON_COMPILING_IN_CPYTHON
+    {
+        PyObject *copy = _PyLong_Copy((PyLongObject*)n);
+        if (likely(copy)) {
+            #if PY_VERSION_HEX >= 0x030C00A7
+            ((PyLongObject*)copy)->long_value.lv_tag = ((PyLongObject*)copy)->long_value.lv_tag & ~_PyLong_SIGN_MASK;
+            #else
+            __Pyx_SET_SIZE(copy, -Py_SIZE(copy));
+            #endif
+        }
+        return copy;
+    }
+#else
+    return PyNumber_Negative(n);
+#endif
+}
+#endif
+
+/* GetTopmostException */
+#if CYTHON_USE_EXC_INFO_STACK && CYTHON_FAST_THREAD_STATE
+static _PyErr_StackItem *
+__Pyx_PyErr_GetTopmostException(PyThreadState *tstate)
+{
+    _PyErr_StackItem *exc_info = tstate->exc_info;
+    while ((exc_info->exc_value == NULL || exc_info->exc_value == Py_None) &&
+           exc_info->previous_item != NULL)
+    {
+        exc_info = exc_info->previous_item;
+    }
+    return exc_info;
+}
+#endif
+
+/* SaveResetException */
+#if CYTHON_FAST_THREAD_STATE
+static CYTHON_INLINE void __Pyx__ExceptionSave(PyThreadState *tstate, PyObject **type, PyObject **value, PyObject **tb) {
+  #if CYTHON_USE_EXC_INFO_STACK && PY_VERSION_HEX >= 0x030B00a4
+    _PyErr_StackItem *exc_info = __Pyx_PyErr_GetTopmostException(tstate);
+    PyObject *exc_value = exc_info->exc_value;
+    if (exc_value == NULL || exc_value == Py_None) {
+        *value = NULL;
+        *type = NULL;
+        *tb = NULL;
+    } else {
+        *value = exc_value;
+        Py_INCREF(*value);
+        *type = (PyObject*) Py_TYPE(exc_value);
+        Py_INCREF(*type);
+        *tb = PyException_GetTraceback(exc_value);
+    }
+  #elif CYTHON_USE_EXC_INFO_STACK
+    _PyErr_StackItem *exc_info = __Pyx_PyErr_GetTopmostException(tstate);
+    *type = exc_info->exc_type;
+    *value = exc_info->exc_value;
+    *tb = exc_info->exc_traceback;
+    Py_XINCREF(*type);
+    Py_XINCREF(*value);
+    Py_XINCREF(*tb);
+  #else
+    *type = tstate->exc_type;
+    *value = tstate->exc_value;
+    *tb = tstate->exc_traceback;
+    Py_XINCREF(*type);
+    Py_XINCREF(*value);
+    Py_XINCREF(*tb);
+  #endif
+}
+static CYTHON_INLINE void __Pyx__ExceptionReset(PyThreadState *tstate, PyObject *type, PyObject *value, PyObject *tb) {
+  #if CYTHON_USE_EXC_INFO_STACK && PY_VERSION_HEX >= 0x030B00a4
+    _PyErr_StackItem *exc_info = tstate->exc_info;
+    PyObject *tmp_value = exc_info->exc_value;
+    exc_info->exc_value = value;
+    Py_XDECREF(tmp_value);
+    Py_XDECREF(type);
+    Py_XDECREF(tb);
+  #else
+    PyObject *tmp_type, *tmp_value, *tmp_tb;
+    #if CYTHON_USE_EXC_INFO_STACK
+    _PyErr_StackItem *exc_info = tstate->exc_info;
+    tmp_type = exc_info->exc_type;
+    tmp_value = exc_info->exc_value;
+    tmp_tb = exc_info->exc_traceback;
+    exc_info->exc_type = type;
+    exc_info->exc_value = value;
+    exc_info->exc_traceback = tb;
+    #else
+    tmp_type = tstate->exc_type;
+    tmp_value = tstate->exc_value;
+    tmp_tb = tstate->exc_traceback;
+    tstate->exc_type = type;
+    tstate->exc_value = value;
+    tstate->exc_traceback = tb;
+    #endif
+    Py_XDECREF(tmp_type);
+    Py_XDECREF(tmp_value);
+    Py_XDECREF(tmp_tb);
+  #endif
+}
+#endif
+
+/* GetException */
+#if CYTHON_FAST_THREAD_STATE
+static int __Pyx__GetException(PyThreadState *tstate, PyObject **type, PyObject **value, PyObject **tb)
+#else
+static int __Pyx_GetException(PyObject **type, PyObject **value, PyObject **tb)
+#endif
+{
+    PyObject *local_type = NULL, *local_value, *local_tb = NULL;
+#if CYTHON_FAST_THREAD_STATE
+    PyObject *tmp_type, *tmp_value, *tmp_tb;
+  #if PY_VERSION_HEX >= 0x030C00A6
+    local_value = tstate->current_exception;
+    tstate->current_exception = 0;
+    if (likely(local_value)) {
+        local_type = (PyObject*) Py_TYPE(local_value);
+        Py_INCREF(local_type);
+        local_tb = PyException_GetTraceback(local_value);
+    }
+  #else
+    local_type = tstate->curexc_type;
+    local_value = tstate->curexc_value;
+    local_tb = tstate->curexc_traceback;
+    tstate->curexc_type = 0;
+    tstate->curexc_value = 0;
+    tstate->curexc_traceback = 0;
+  #endif
+#else
+    PyErr_Fetch(&local_type, &local_value, &local_tb);
+#endif
+    PyErr_NormalizeException(&local_type, &local_value, &local_tb);
+#if CYTHON_FAST_THREAD_STATE && PY_VERSION_HEX >= 0x030C00A6
+    if (unlikely(tstate->current_exception))
+#elif CYTHON_FAST_THREAD_STATE
+    if (unlikely(tstate->curexc_type))
+#else
+    if (unlikely(PyErr_Occurred()))
+#endif
+        goto bad;
+    #if PY_MAJOR_VERSION >= 3
+    if (local_tb) {
+        if (unlikely(PyException_SetTraceback(local_value, local_tb) < 0))
+            goto bad;
+    }
+    #endif
+    Py_XINCREF(local_tb);
+    Py_XINCREF(local_type);
+    Py_XINCREF(local_value);
+    *type = local_type;
+    *value = local_value;
+    *tb = local_tb;
+#if CYTHON_FAST_THREAD_STATE
+    #if CYTHON_USE_EXC_INFO_STACK
+    {
+        _PyErr_StackItem *exc_info = tstate->exc_info;
+      #if PY_VERSION_HEX >= 0x030B00a4
+        tmp_value = exc_info->exc_value;
+        exc_info->exc_value = local_value;
+        tmp_type = NULL;
+        tmp_tb = NULL;
+        Py_XDECREF(local_type);
+        Py_XDECREF(local_tb);
+      #else
+        tmp_type = exc_info->exc_type;
+        tmp_value = exc_info->exc_value;
+        tmp_tb = exc_info->exc_traceback;
+        exc_info->exc_type = local_type;
+        exc_info->exc_value = local_value;
+        exc_info->exc_traceback = local_tb;
+      #endif
+    }
+    #else
+    tmp_type = tstate->exc_type;
+    tmp_value = tstate->exc_value;
+    tmp_tb = tstate->exc_traceback;
+    tstate->exc_type = local_type;
+    tstate->exc_value = local_value;
+    tstate->exc_traceback = local_tb;
+    #endif
+    Py_XDECREF(tmp_type);
+    Py_XDECREF(tmp_value);
+    Py_XDECREF(tmp_tb);
+#else
+    PyErr_SetExcInfo(local_type, local_value, local_tb);
+#endif
+    return 0;
+bad:
+    *type = 0;
+    *value = 0;
+    *tb = 0;
+    Py_XDECREF(local_type);
+    Py_XDECREF(local_value);
+    Py_XDECREF(local_tb);
+    return -1;
+}
+
+/* PyObjectCallOneArg */
+static CYTHON_INLINE PyObject* __Pyx_PyObject_CallOneArg(PyObject *func, PyObject *arg) {
+    PyObject *args[2] = {NULL, arg};
+    return __Pyx_PyObject_FastCall(func, args+1, 1 | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET);
 }
 
 /* Import */
@@ -8430,7 +11544,7 @@ __Pyx_PyType_GetName(PyTypeObject* tp)
                                                __pyx_n_s_name);
     if (unlikely(name == NULL) || unlikely(!PyUnicode_Check(name))) {
         PyErr_Clear();
-        Py_XSETREF(name, __Pyx_NewRef(__pyx_n_s__11));
+        Py_XSETREF(name, __Pyx_NewRef(__pyx_n_s__19));
     }
     return name;
 }
