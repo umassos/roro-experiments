@@ -1,7 +1,8 @@
 import random
 import math
 from scipy.optimize import linprog
-from scipy.optimize import minimize
+from scipy.optimize import minimize_scalar
+import scipy.integrate as integrate
 from scipy.special import lambertw
 import numpy as np
 import pandas as pd
@@ -89,7 +90,7 @@ import pickle
 # list of costs (values)    -- vals
 # length of job             -- k
 # switching cost            -- beta
-cpdef tuple[list, float] oneMinOnline(list vals, int k, float U, float L, float beta):
+cpdef tuple[list, float] oneMinOnline(list vals, int k, float L, float U, float beta):
     cdef int lastElem, i
     cdef bint accept, prevAccepted
     cdef list sol
@@ -192,7 +193,7 @@ cpdef tuple[list, float] optimalSolution(list vals, float beta):
     row[n] = -1
     A.append(row)
     b.append(0)
-    for i in range(0, n):
+    for i in range(0, n-1):
         row = [0 for i in range(0, dim)]
         row[i] = -1
         row[i+1] = 1
@@ -202,6 +203,7 @@ cpdef tuple[list, float] optimalSolution(list vals, float beta):
 
         row[i] = 1
         row[i+1] = -1
+        row[i+n+1] = -1
         A.append(row.copy())
         b.append(0)
     row = [0 for i in range(0, dim)]
@@ -230,7 +232,7 @@ cpdef tuple[list, float] optimalSolution(list vals, float beta):
 # list of costs (values)    -- vals
 # length of job             -- k
 # switching cost            -- beta
-cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):
+cpdef tuple[list, float] owtOnline(list vals, float L, float U, float beta):
     cdef int i
     cdef list sol
     cdef float cost, val, alpha, accepted
@@ -259,13 +261,13 @@ cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):
             break
         
         # solve for threshold-defined amount
-        amount = owtHelper(val, accepted, alpha, L, U, beta)
+        previous = 0
+        if i != 0:
+            previous = sol[-1]
+        amount = owtHelper(val, accepted, alpha, L, U, previous)
         accepted += amount
         cost += val * amount
-        if i == 0:
-            cost += (beta * abs(amount - 0))
-        else:
-            cost += (beta * abs(amount - sol[-1]))
+        cost += (beta * abs(amount - previous))
         sol.append(amount)
         if accepted >= 1:
             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
@@ -274,36 +276,35 @@ cpdef tuple[list, float] owtOnline(list vals, float U, float L, float beta):
     return sol, cost
 
 # helper for one-way trading algorithm
-cpdef float owtHelper(float val, float accepted, float alpha, float U, float L, float beta):
-    cdef float threshold, target
+cpdef float owtHelper(float val, float accepted, float alpha, float L, float U, float previous):
+    cdef float target
 
-    threshold = getThreshold(val, alpha, U, L, 0, accepted)
+    target = minimize_scalar(owtMinimization, bounds = (0,1-accepted), args=(val, alpha, U, L, accepted), method='bounded').x
+    return target
 
-    if threshold >= 0:
-        try:
-            target = minimize(getThreshold, accepted, args=(val, alpha, U, L, 0), bounds = [(0,1)]).x[0]
-        # solve for the amount
-        except:
-            print("something went wrong here w_j={}".format(accepted))
-        else:
-            return (target - accepted)
-    else:
-        return 0
+    # try:
+    #     target = minimize(owtMinimization, accepted, args=(val, alpha, U, L, previous, accepted), bounds = [(0,1)]).x[0]
+    #     # solve for the amount
+    # except:
+    #     print("something went wrong here w_j={}".format(accepted))
+    # else:
+    #     return target
 
-# note that when beta = 0, this is exactly the same as the OWT threshold
-cpdef float getThreshold(float val, float alpha, float U, float L, float beta, float w):
-    return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha ) - val
+cpdef float owtThreshold(float U, float L, float alpha, float w):
+    return U + (U / alpha - U) * np.exp( w / alpha )
 
+cpdef float owtMinimization(float val, float alpha, float U, float L, float accepted, float x):
+    return (x * val) - integrate.quad(owtThreshold, accepted, accepted + x, args=(U,L,alpha))[0]
 
 # RORO algorithm implementation
 
 # list of costs (values)    -- vals
 # length of job             -- k
 # switching cost            -- beta
-cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):
+cpdef tuple[list, float] roroOnline(list vals, float L, float U, float beta):
     cdef int i
     cdef list sol
-    cdef float cost, val, alpha, accepted
+    cdef float cost, val, alpha, accepted, adjustedVal
 
     sol = []
     accepted = 0
@@ -312,7 +313,7 @@ cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):
     U = 30
 
     # get value for alpha
-    alpha = 1 / (1 + lambertw( ( (L/U) - 1 ) / math.e ) )
+    alpha = 1 / (1 - (2*beta/U) + lambertw( ( ( (2*beta/U) + (L/U) - 1 ) * math.exp(2*beta/U) ) / math.e ) )
 
     #simulate behavior of online algorithm using a for loop
     for (i, val) in enumerate(vals):
@@ -327,15 +328,15 @@ cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):
             sol.append(remainder)
             accepted += remainder
             break
-        
+                
         # solve for threshold-defined amount
-        amount = roroHelper(val, accepted, alpha, L, U, beta)
+        previous = 0
+        if i != 0:
+            previous = sol[-1]
+        amount = roroHelper(val, accepted, alpha, L, U, beta, previous)
         accepted += amount
         cost += val * amount
-        if i == 0:
-            cost += (beta * abs(amount - 0))
-        else:
-            cost += (beta * abs(amount - sol[-1]))
+        cost += (beta * abs(amount - previous))
         sol.append(amount)
         if accepted >= 1:
             cost += (beta * abs(0 - amount)) # one last switching cost to turn off
@@ -344,18 +345,23 @@ cpdef tuple[list, float] roroOnline(list vals, float U, float L, float beta):
     return sol, cost
 
 # helper for RORO algorithm
-cpdef float roroHelper(float val, float accepted, float alpha, float U, float L, float beta):
-    cdef float threshold, target
+cpdef float roroHelper(float val, float accepted, float alpha, float L, float U, float beta, float previous):
+    cdef float target
 
-    threshold = getThreshold(val, alpha, U, L, beta, accepted)
+    # target = minimize(roroMinimization, accepted, args=(val, alpha, U, L, beta, previous, accepted), bounds = [(0,1)]).x[0]
+    # return target
 
-    if threshold >= 0:
-        try:
-            target = minimize(getThreshold, accepted, args=(val, alpha, U, L, beta), bounds = [(0,1)]).x[0]
+    try:
+        target = minimize_scalar(roroMinimization, bounds = (0,1-accepted), args=(val, alpha, U, L, beta, previous, accepted), method='bounded').x
         # solve for the amount
-        except:
-            print("something went wrong here w_j={}".format(accepted))
-        else:
-            return (target - accepted)
-    else:
+    except:
+        print("something went wrong here w_j={}".format(accepted))
         return 0
+    else:
+        return target
+
+cpdef float thresholdFunc(float U, float L, float beta, float alpha, float w):
+    return U - beta + (U / alpha - U + 2 * beta) * np.exp( w / alpha )
+
+cpdef float roroMinimization(float val, float alpha, float U, float L, float beta, float previous, float accepted, float x):
+    return (x * val) + ( beta * abs(x - previous) ) - integrate.quad(thresholdFunc, accepted, accepted + x, args=(U,L,beta,alpha))[0]
