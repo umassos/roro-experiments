@@ -104,6 +104,8 @@ for i, row in enumerate(df.itertuples()):
     # get the optimal solution
     opt, optCost = f.optimalSolution(seq, beta)
 
+    print(opt[0:len(seq)])
+
     # get the one min solution
     onemin, oneminCost = f.oneMinOnline(seq, 1, L, U, beta)
 
@@ -154,16 +156,9 @@ plt.tight_layout()
 # plt.clf()
 plt.show()
 
-# placeholder for 6 figures
+# add offsets based on solar generation
 
-# changing switching cost
-
-# changing k
-    # changing slack (ratio between k and T)
-
-# changing noise
-
-# changing U/L (changing location)
+# adjust "how much" work needs to be done based on the energy demand of the EV
 
 
 
