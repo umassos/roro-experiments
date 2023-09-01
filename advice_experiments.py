@@ -1,6 +1,6 @@
 # experiment implementations for online search with switching cost
-# EV charging experiments
-# August 2023
+# EV charging experiments -- varying advice error
+# September 2023
 
 import sys
 import random
@@ -20,20 +20,7 @@ pyximport.install()
 import functions as f
 
 import matplotlib.style as style
-style.use('tableau-colorblind10')
-
-# trace = sys.argv[1]
-# slack = sys.argv[2]
-
-# filename = ""
-# if trace == "NE":
-#     filename = "../carbon-traces/US-CENT-SWPP.csv"
-# elif trace == "US":
-#     filename = "../carbon-traces/US-NW-PACW.csv"
-# elif trace == "NZ":
-#     filename = "../carbon-traces/NZ-NZN.csv"
-# elif trace == "CA":
-#     filename = "../carbon-traces/CA-ON.csv"
+# style.use('tableau-colorblind10')
 
 # load a carbon trace
 cf = pd.read_csv('ForecastsCISO.csv', parse_dates=True)
@@ -42,17 +29,9 @@ cf['datetime'] = pd.to_datetime(cf['UTC time'], utc=True)
 cf.drop(["UTC time"], axis=1, inplace=True)
 cf.set_index('datetime', inplace=True)
 
-# print the types in the dataframe
-# print(cf.index.dtype)
-# display(cf)
-# print(cf.loc['2019-08-20 09'])
-
 ############### EXPERIMENT SETUP ###############
-trials = 250
-# set U and L based on full data
-# L, U = (cf['carbon_intensity'].min(), cf['carbon_intensity'].max())
 
-DC_SYSTEM_SIZE = 30 # kW
+DC_SYSTEM_SIZE = 0 # kW
 SOLAR_TILT = 30 # degrees
 
 # set the switching cost
@@ -93,26 +72,26 @@ df = df[df['kWhDelivered'] <= 19]
 # run main experiment (just once for now)
 
 opts = []
-onemins = []
-owts = []
 roros = []
+advices = []
 roroadvices = []
+roroadvices2 = []
+roroadvices3 = []
 
 cost_opts = []
-cost_onemins = []
-cost_owts = []
 cost_roros = []
+cost_advices = []
 cost_roroadvices = []
+cost_roroadvices2 = []
+cost_roroadvices3 = []
 
 j = 0
-
-# print(L, "   ", U)
 
 # for each charging session, (i.e. row in the dataframe)
 for i, row in enumerate(df.itertuples()):
     # randomly skip about 75% of the data
-    # if random.random() < 0.75:
-    #     continue
+    if random.random() < 0.75:
+        continue
 
     connect = row.connectionHour
     disconnect = row.disconnectHour
@@ -128,8 +107,9 @@ for i, row in enumerate(df.itertuples()):
     
     carbon = cf.loc[connect:disconnect]
     seq = carbon['carbon_intensity'].to_list() # get the ground truth carbon intensity for that location
-    predseq = carbon['avg_carbon_intensity_forecast'].to_list()
-    #  L, U = (min(seq), max(seq))
+
+    # generate a "predicted sequence" (real sequence plus noise)
+    predseq = f.addNoise(seq, noiseFactor=0.5)
 
     solar = gen.loc[connect:disconnect]
     solarSeq = solar['Solar Generation (kWh)'].to_list() # get the ground truth solar generation for that location
@@ -156,28 +136,28 @@ for i, row in enumerate(df.itertuples()):
         print("Error: no optimal solution found.")
         continue
 
-    # get the one min solution
-    onemin, oneminCost = f.oneMinOnline(seq, solarSeq, 1, 1, 1105, beta, delivery)
-
-    # get the one way trading solution
-    owt, owtCost = f.owtOnline(seq, solarSeq, L, U, beta, delivery)
-
     # get the RORO solution
     roro, roroCost = f.roroOnline(seq, solarSeq, L, U, beta, delivery)
 
-    if (oneminCost < optCost or owtCost < optCost or roroCost < optCost) and DC_SYSTEM_SIZE > 0:
-        # try again
-        costs = [oneminCost, owtCost, roroCost]
-        bestSoFar = np.argmin(costs)
-        bestSolutionSoFar = [onemin, owt, roro][bestSoFar]
-        assert abs(f.objectiveFunction(bestSolutionSoFar, seq, solarSeq, beta) - costs[bestSoFar]) < 0.0001, "Best cost is wrong, {} != {}".format(f.objectiveFunction(bestSolutionSoFar, seq, solarSeq, beta), costs[bestSoFar])
+    # if (roroCost < optCost) and DC_SYSTEM_SIZE > 0:
+    #     # try again
+    #     costs = [oneminCost, owtCost, roroCost]
+    #     bestSoFar = np.argmin(costs)
+    #     bestSolutionSoFar = [onemin, owt, roro][bestSoFar]
+    #     assert abs(f.objectiveFunction(bestSolutionSoFar, seq, solarSeq, beta) - costs[bestSoFar]) < 0.0001, "Best cost is wrong, {} != {}".format(f.objectiveFunction(bestSolutionSoFar, seq, solarSeq, beta), costs[bestSoFar])
         
-        print("retrying optimal, current cost = {}, and best so far ({}) = {}".format(optCost, bestSoFar, costs[bestSoFar]))
-        opt, optCost = f.optimalSolution(seq, solarSeq, beta, delivery, seed=bestSolutionSoFar)
-        print("new cost = {}".format(optCost))
+    #     print("retrying optimal, current cost = {}, and best so far ({}) = {}".format(optCost, bestSoFar, costs[bestSoFar]))
+    #     opt, optCost = f.optimalSolution(seq, solarSeq, beta, delivery, seed=bestSolutionSoFar)
+    #     print("new cost = {}".format(optCost))
 
     # get the learning-augmented RORO solution
-    roroAdvice, roroAdviceCost = f.convexComb(seq, solarSeq, beta, 0.5, predOpt.tolist(), roro)
+    roroAdvice, roroAdviceCost = f.convexComb(seq, solarSeq, beta, 0.75, predOpt.tolist(), roro)
+
+    # get the learning-augmented RORO solution
+    roroAdvice2, roroAdviceCost2 = f.convexComb(seq, solarSeq, beta, 0.5, predOpt.tolist(), roro)
+
+    # get the learning-augmented RORO solution
+    roroAdvice3, roroAdviceCost3 = f.convexComb(seq, solarSeq, beta, 0.25, predOpt.tolist(), roro)
     
     # if roroothCost > (roroCost * (actualdelivery/delivery)):
     #     print(seq)
@@ -198,17 +178,17 @@ for i, row in enumerate(df.itertuples()):
     # log_opt.append(optothCost * (delivery/19)/optCost)
 
     opts.append(opt)
-    onemins.append(onemin)
-    owts.append(owt)
     roros.append(roro)
+    advices.append(predOpt)
     roroadvices.append(roroAdvice)
-    # roroolds.append(roroold)
+    roroadvices2.append(roroAdvice2)
+    roroadvices3.append(roroAdvice3)
     cost_opts.append(optCost)
-    cost_onemins.append(oneminCost)
-    cost_owts.append(owtCost)
     cost_roros.append(roroCost)
+    cost_advices.append(predOptCost)
     cost_roroadvices.append(roroAdviceCost)
-    # cost_roroolds.append(rorooldCost)
+    cost_roroadvices2.append(roroAdviceCost2)
+    cost_roroadvices3.append(roroAdviceCost3)
 
     j += 1
     # if j == 1000:
@@ -222,26 +202,26 @@ for i, row in enumerate(df.itertuples()):
 
 # compute competitive ratios
 cost_opts = np.array(cost_opts)
-cost_onemins = np.array(cost_onemins)
-cost_owts = np.array(cost_owts)
 cost_roros = np.array(cost_roros)
+cost_advices = np.array(cost_advices)
 cost_roroadvices = np.array(cost_roroadvices)
-# cost_roroolds = np.array(cost_roroolds)
+cost_roroadvices2 = np.array(cost_roroadvices2)
+cost_roroadvices3 = np.array(cost_roroadvices3)
 
-crOnemin = cost_onemins/cost_opts
-crOWT = cost_owts/cost_opts
 crRORO = cost_roros/cost_opts
+crAdvice = cost_advices/cost_opts
 crROROAdvice = cost_roroadvices/cost_opts
-# crROROold = cost_roroolds/cost_opts
+crROROAdvice2 = cost_roroadvices2/cost_opts
+crROROAdvice3 = cost_roroadvices3/cost_opts
 
 print(crRORO)
 
-legend = ["1-min", "OWT", "RORO", "ROAdvice ($\lambda = 0.5$)"]
+legend = ["RORO", "BB Advice", "ROAdvice ($\lambda = 0.75$)", "ROAdvice ($\lambda = 0.5$)", "ROAdvice ($\lambda = 0.25$)"]
 
 # CDF plot for competitive ratio (across all experiments)
 plt.figure(figsize=(3.8,3), dpi=300)
-linestyles = [":", "--", "-.", "-"]
-for list in zip([crOnemin, crOWT, crRORO, crROROAdvice], linestyles):
+linestyles = [":", "--", "-.", "-", ":"]
+for list in zip([crRORO, crAdvice, crROROAdvice, crROROAdvice2, crROROAdvice3], linestyles):
     sns.ecdfplot(data = list[0], stat='proportion', linestyle = list[1])
 
 plt.legend(legend)
