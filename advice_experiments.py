@@ -13,6 +13,7 @@ from multiprocessing import Pool, Manager, freeze_support
 import seaborn as sns
 import pickle
 
+import supplemental as s
 import solar_loader as sl
 
 import pyximport
@@ -36,6 +37,10 @@ SOLAR_TILT = 30 # degrees
 
 # set the switching cost
 beta = 20
+
+# set "how adversarial" the advice is (1 is max)
+factor = 0.0
+
 
 ###############  ##############  ###############
 
@@ -109,7 +114,9 @@ for i, row in enumerate(df.itertuples()):
     seq = carbon['carbon_intensity'].to_list() # get the ground truth carbon intensity for that location
 
     # generate a "predicted sequence" (real sequence plus noise)
-    predseq = f.addNoise(seq, noiseFactor=0.5)
+    # predseq = f.addNoise(seq, noiseFactor=320.0)
+    ind = random.randint(0, len(cf)-len(seq))
+    altSeq = cf.loc[cf.index[ind]:cf.index[ind+len(seq)-1]]['carbon_intensity'].to_list()
 
     solar = gen.loc[connect:disconnect]
     solarSeq = solar['Solar Generation (kWh)'].to_list() # get the ground truth solar generation for that location
@@ -120,11 +127,18 @@ for i, row in enumerate(df.itertuples()):
     # get the optimal solution and the predicted optimal
     if DC_SYSTEM_SIZE == 0:
         opt, optCost = f.optimalSolutionLin(seq, beta, delivery)
-        predOpt, predOptCost = f.optimalSolutionLin(predseq, beta, delivery)
+        adversary, _ = s.maximizeSolution(seq, solarSeq, beta, delivery)
+        # adversaryCost = f.objectiveFunction(adversary, seq, solarSeq, beta)
     else:
         opt, optCost = f.optimalSolution(seq, solarSeq, beta, delivery)
-        predOpt, predOptCost = f.optimalSolution(predseq, solarSeq, beta, delivery)
+        # predOpt, _ = f.optimalSolution(predseq, solarSeq, beta, delivery)
+        adversary, _ = s.maximizeSolution(seq, solarSeq, beta, delivery)
+        # adversaryCost = f.objectiveFunction(adversary, seq, solarSeq, beta)
     
+    # pred Opt is a convex combination of the optimal and the adversary
+    predOpt = f.combine(opt[:len(adversary)], adversary, factor)
+    predOptCost = f.objectiveFunction(predOpt, seq, solarSeq, beta)
+
     # if optCost < optothCost * (delivery/19):
     #     print(seq)
     #     print(delivery/19)
@@ -151,13 +165,13 @@ for i, row in enumerate(df.itertuples()):
     #     print("new cost = {}".format(optCost))
 
     # get the learning-augmented RORO solution
-    roroAdvice, roroAdviceCost = f.convexComb(seq, solarSeq, beta, 0.75, predOpt.tolist(), roro)
+    roroAdvice, roroAdviceCost = f.convexComb(seq, solarSeq, beta, 0.75, predOpt, roro)
 
     # get the learning-augmented RORO solution
-    roroAdvice2, roroAdviceCost2 = f.convexComb(seq, solarSeq, beta, 0.5, predOpt.tolist(), roro)
+    roroAdvice2, roroAdviceCost2 = f.convexComb(seq, solarSeq, beta, 0.5, predOpt, roro)
 
     # get the learning-augmented RORO solution
-    roroAdvice3, roroAdviceCost3 = f.convexComb(seq, solarSeq, beta, 0.25, predOpt.tolist(), roro)
+    roroAdvice3, roroAdviceCost3 = f.convexComb(seq, solarSeq, beta, 0.25, predOpt, roro)
     
     # if roroothCost > (roroCost * (actualdelivery/delivery)):
     #     print(seq)
@@ -228,11 +242,11 @@ plt.legend(legend)
 plt.ylabel('cumulative probability')
 plt.xlabel("empirical competitive ratio")
 plt.tight_layout()
-plt.xlim(0.9, 8)
+plt.xlim(0.9, 4)
 # plt.title("CDF of Competitive Ratio, " + trace + " trace. Slack {} hrs & Switch Cost {}".format(T, switchCost))
-# plt.savefig("cdf.png", facecolor='w', transparent=False, bbox_inches='tight')
-# plt.clf()
-plt.show()
+plt.savefig("cdf_advice.png", facecolor='w', transparent=False, bbox_inches='tight')
+plt.clf()
+# plt.show()
 
 # plt.figure(figsize=(3.3,2.5), dpi=300)
 # plt.plot(crRORO, label="RORO")

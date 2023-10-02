@@ -28,6 +28,20 @@ def addNoise(vals, noiseFactor):
     noisyInterval = noisyInterval.clip(min=0)
     return noisyInterval.tolist()
 
+cpdef list addNoise(list vals, float noiseFactor):
+    cdef double[:] values, noise, noisyInterval
+    values = np.array(vals)
+    noise = np.random.normal(loc=0.0, scale=noiseFactor, size=len(vals))
+    noisyInterval = np.add(vals, noise)
+    noisyInterval = np.clip(noisyInterval, a_min=0, a_max=None)
+    return list(noisyInterval)
+
+def combine(vals, vals2, mixing):
+    values = np.array(vals)
+    values2 = np.array(vals2)
+    newSeq = (1-mixing)*values + mixing*values2
+    return newSeq.tolist()
+
 # def boundedValues(df):
 #     L = df["carbon_intensity_avg"].min()
 #     U = df["carbon_intensity_avg"].max()
@@ -113,9 +127,9 @@ def solarOffset(carbon, solarVal, x):
     if solarVal == 0.0: # if there is no solar, then we can't offset anything
         return carbon * x
     elif solarVal/CAPACITY > x: # if the solar is large enough to offset all of the demand
-        return 0.0
+        return 2.0 * x
     else: 
-        return carbon * (x - (solarVal/CAPACITY))    
+        return carbon * (x - (solarVal/CAPACITY)) + 2.0 * (solarVal/CAPACITY)
 
 def objectiveFunction(vars, vals, solarVals, beta):
     cost = 0.0
@@ -459,8 +473,7 @@ cpdef float thresholdFunc(float w, float U, float L, float beta, float alpha):
 
 cpdef float roroMinimization(float x, float carbon, float solar, float alpha, float U, float L, float beta, float previous, float accepted, float total):
     cdef float val
-    val = solarOffset(carbon, solar, x*total)
-    val = val * (1/total) 
+    val = solarOffset(carbon, solar, x)
     return (val) + ( beta * abs(x - (previous*1/total)) ) - integrate.quad(thresholdFunc, accepted, (accepted + x), args=(U,L,beta,alpha))[0]
 
 cpdef tuple[list, float] convexComb(list vals, list solarVals, float beta, float lamda, list decision1, list decision2):

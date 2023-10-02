@@ -29,7 +29,7 @@ class SolarData:
 
         df['GTI'] = df['DNI'] * np.sin(np.radians(df['Solar Elevation Angle'])) + df['DHI']
         
-        df['Solar Generation (kWh)'] = self.DC_SYSTEM_SIZE * (df['GTI'] / 1000) * (1-self.SYSTEM_LOSS) * self.INVERTER_EFFICIENCY
+        df['Solar Generation (kWh)'] = dc_rating * (df['GTI'] / 1000) * (1-system_loss) * inverter_efficiency
 
         self.df = df
 
