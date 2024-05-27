@@ -31,3 +31,16 @@ Given a correctly configured Python environment, with all dependencies, one can 
 ``python experiments.py {TRACE CODE} {AMOUNT OF SLACK}``
 
 Pass the abbreviation for the trace file and the desired amount of slack as command line arguments.  For example, running the experiments on the Ontario trace with 48 hours of slack is accomplished by running ``python experiments.py CA 48``
+
+# Citation
+
+> @inproceedings{lechowicz2024online,
+> title        = {{Online Conversion with Switching Costs: Robust and Learning-augmented Algorithms}},
+> author       = {Adam Lechowicz and Nicolas Christianson and Bo Sun and Noman Bashir and Mohammad Hajiesmaili and Adam Wierman and Prashant Shenoy},
+> year         = 2024,
+> month        = {Jun},
+> booktitle    = {Proceedings of the 2024 SIGMETRICS/Performance Joint International Conference on Measurement and Modeling of Computer Systems},
+> location     = {Venice, Italy},
+> publisher    = {Association for Computing Machinery},
+> address      = {New York, NY, USA},
+> series       = {SIGMETRICS / Performance '24} }
