@@ -1,4 +1,6 @@
-# setup.py
+# experiment implementations for online conversion with switching costs
+# Cython build file
+# August 2023
 
 from distutils.core import setup
 from Cython.Build import cythonize

@@ -1,4 +1,4 @@
-# experiment implementations for online search with switching cost
+# experiment implementations for online conversion with switching costs
 # EV charging experiments -- varying advice error
 # September 2023
 
