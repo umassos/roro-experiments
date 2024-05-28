@@ -47,7 +47,7 @@ Manajit Sengupta, Yu Xie, Anthony Lopez, Aron Habte, Galen Maclaurin, James Shel
 
 Zachary J. Lee, Tongxin Li, and Steven H. Low. 2019. ACN-Data: Analysis and Applications of an Open EV Charging Dataset. In Proceedings of the Tenth ACM International Conference on Future Energy Systems (e-Energy '19). Association for Computing Machinery, New York, NY, USA, 139–149. https://doi.org/10.1145/3307772.3328313
 
-# Reproducing Results (FINISH)
+# Reproducing Results
 
 Given a correctly configured Python environment, with all dependencies, one can reproduce our main results by cloning this repository, and running the following in a command line at the root directory:
 
