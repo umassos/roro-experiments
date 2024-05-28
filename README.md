@@ -49,11 +49,15 @@ Zachary J. Lee, Tongxin Li, and Steven H. Low. 2019. ACN-Data: Analysis and Appl
 
 # Reproducing Results (FINISH)
 
-Given a correctly configured Python environment, with all dependencies, one can reproduce our results by cloning this repository, and running either of the following in a command line at the root directory, for synthetic and real-world networks, respectively:
+Given a correctly configured Python environment, with all dependencies, one can reproduce our main results by cloning this repository, and running the following in a command line at the root directory:
 
-``python experiments.py {TRACE CODE} {AMOUNT OF SLACK}``
+``python experiments.py {SIMULATED SOLAR SYSTEM SIZE (kW)} {SWITCHING COST (β)}``
 
-Pass the abbreviation for the trace file and the desired amount of slack as command line arguments.  For example, running the experiments on the Ontario trace with 48 hours of slack is accomplished by running ``python experiments.py CA 48``
+Pass the desired simulated solar system size in kW and the switching cost coefficient $\beta$ as command line arguments.  For example, running the experiments with no local solar and a switching coefficient $\beta = 20$ is accomplished by running ``python experiments.py 0 20``
+
+To reproduce the results testing the impact of adversarial factor $\xi$ (e.g., Figure 4), run the following in a command line at the root directory:
+
+``python advice_experiments.py``
 
 # Citation
 
