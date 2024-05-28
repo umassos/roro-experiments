@@ -18,7 +18,7 @@ Our experimental code has been written in Python and Cython.  We recommend using
 # Files and Descriptions
 
 1. **functions2.pyx**: Implements shared functions and algorithms in Cython
-2. **experiments.py**: Main Python script for experiments
+2. **``experiments.py''**: Main Python script for experiments
 3. **advice_experiments.py**: Python script for advice experiments (varying adversarial factor $\xi$)
 4. **setup.py**: Setup script for Cython compilation
 5. **solar_loader.py**: Implements simple logic to convert solar radiation data to estimated PV electricity generation traces
