@@ -1,3 +1,7 @@
+# experiment implementations for online conversion with switching costs
+# shared functions used occasionally (no Cython)
+# August 2023
+
 import random
 import math
 from scipy.optimize import linprog

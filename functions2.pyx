@@ -1,3 +1,7 @@
+# experiment implementations for online conversion with switching costs
+# shared function implementations in Cython
+# August 2023
+
 import random
 import math
 from scipy.optimize import linprog
@@ -10,15 +14,6 @@ import numpy as np
 import pandas as pd
 import pickle
 
-# def randomInterval(df, T, noiseFactor=0):
-#     randInd = random.randrange(len(df)-T)
-#     int = df[randInd:randInd+T]
-#     noise = np.random.normal(loc=0.0, scale=noiseFactor, size=T)
-#     interval = int['carbon_intensity_avg'].values
-#     interval = interval + noise
-#     interval = interval.clip(min=0)
-#     return interval.tolist()
-
 def addNoise(vals, noiseFactor):
     vals = np.array(vals)
     mean = np.mean(vals)
@@ -28,80 +23,11 @@ def addNoise(vals, noiseFactor):
     noisyInterval = noisyInterval.clip(min=0)
     return noisyInterval.tolist()
 
-cpdef list addNoise(list vals, float noiseFactor):
-    cdef double[:] values, noise, noisyInterval
-    values = np.array(vals)
-    noise = np.random.normal(loc=0.0, scale=noiseFactor, size=len(vals))
-    noisyInterval = np.add(vals, noise)
-    noisyInterval = np.clip(noisyInterval, a_min=0, a_max=None)
-    return list(noisyInterval)
-
 def combine(vals, vals2, mixing):
     values = np.array(vals)
     values2 = np.array(vals2)
     newSeq = (1-mixing)*values + mixing*values2
     return newSeq.tolist()
-
-# def boundedValues(df):
-#     L = df["carbon_intensity_avg"].min()
-#     U = df["carbon_intensity_avg"].max()
-#     return L, U
-
-# list of values            -- vals
-# length of subsequence     -- k
-# def smallestSubsequenceK(vals, k):
-#     subseq = []
-#     indices = (0,0)
-#     curSum = math.inf
-#     n = len(vals)
-
-#     for i in range(0, n-k+1):  
-#         subarray = vals[i:i+k]
-#         if sum(subarray) < curSum:
-#             subseq = subarray
-#             curSum = sum(subarray)
-#             indices = (i, i+k)
-
-#     return subseq, indices  # returning the min subsequence, and its indices
-
-
-# list of costs (values)    -- vals
-# length of job             -- k
-# switching cost            -- beta
-# def dynProgOPT(vals, k, beta):
-#     minCost = math.inf
-#     sol = []
-#     # n = len(vals)
-#     if (k == 0):
-#         return sol, 0
-
-#     for i in range(1, k+1):
-#         newVals = vals.copy()
-#         subseq, indices = smallestSubsequenceK(newVals, i) # get the smallest subsequence of length i
-
-#         # subtract subseq from vals
-#         del newVals[indices[0]:indices[1]]
-
-#         otherSeq, otherSum = dynProgOPT(newVals, k-i, beta)
-#         curCost = sum(subseq) + otherSum + 2*beta
-
-#         if curCost < minCost:
-#             minCost = curCost
-#             sol = []
-#             sol.append(subseq)
-#             for seq in otherSeq:
-#                 sol.append(seq)
-    
-#     return sol, minCost
-
-# list of costs (values)    -- vals
-# length of job             -- k
-# switching cost            -- beta
-# def carbonAgnostic(vals, k, beta):
-#     subseq = vals[0:k]
-#     cost = sum(subseq) + 2*beta
-    
-#     return [subseq], cost
 
 cdef float cosine(float x):
     return (5.1 + 5 * math.cos(x/3.8))
@@ -127,10 +53,14 @@ def solarOffset(carbon, solarVal, x):
     if solarVal == 0.0: # if there is no solar, then we can't offset anything
         return carbon * x
     elif solarVal/CAPACITY > x: # if the solar is large enough to offset all of the demand
-        return 2.0 * x
+        return 1.0 * x
     else: 
-        return carbon * (x - (solarVal/CAPACITY)) + 2.0 * (solarVal/CAPACITY)
+        return carbon * (x - (solarVal/CAPACITY)) + 1.0 * (solarVal/CAPACITY)
 
+# objectiveFunction computes the minimization objective function for the OCS problem.
+# vars is the time series of decision variables (length T)
+# vals is the time series of carbon intensity values (length T)
+# beta is a fixed switching cost (you can set this to 0)
 def objectiveFunction(vars, vals, solarVals, beta):
     cost = 0.0
     n = len(vals)
@@ -254,7 +184,7 @@ def optimalSolution(vals, solarVals, beta, delivery, seed=None):
 # switching cost            -- beta
 cpdef tuple[list, float] oneMinOnline(list vals, list solarVals, int k, float L, float U, float beta, float delivery):
     cdef int lastElem, i
-    cdef bint accept, prevAccepted
+    cdef bint accept
     cdef list sol
     cdef float cost, threshold, val, accepted
     
@@ -262,48 +192,41 @@ cpdef tuple[list, float] oneMinOnline(list vals, list solarVals, int k, float L,
     sol = []
     accepted = 0
     lastElem = len(vals)
-    cost = 0
 
-    threshold = math.sqrt(U*L)
+    threshold = math.sqrt(1*1105)
+
+    total = delivery/19
 
     #simulate behavior of online algorithm using a for loop
     for (i, carbon) in enumerate(vals):
-        if accepted >= k:
+        if accepted >= total:
             sol.append(0)
             continue
         
-        if accepted + (len(vals)-i) == k: # must accept all remaining elements
+        if (len(vals)-i) == int(np.ceil(total-accepted)): # must accept all remaining elements
             lastElem = i
             break
 
         solar = solarVals[i]
-        val = solarOffset(carbon, solar, 1/k)
+        val = solarOffset(carbon, solar, ((1/k) * min(total-accepted, 1)))
         
         accept = (val <= threshold * 1/k)
-        if prevAccepted != accept:
-            cost += beta * (1/k) * delivery/19
         if accept:
-            sol.append((1/k) * delivery/19)
-            accepted += 1
-            cost += val
-            if accepted == k:
-                cost += beta * (1/k) * delivery/19 # one last switching cost to turn off
-                continue
+            sol.append((1/k) * min(total-accepted, 1))
+            accepted += min(total-accepted, 1)
         else:
             sol.append(0)
-        prevAccepted = accept
 
-    if accepted < k:
-        if prevAccepted != True:
-            cost += 2*beta * (1/k) * delivery/19
+    if accepted < total:
         for i in range(lastElem, len(vals)):
             solar = solarVals[i]
             carbon = vals[i]
-            val = solarOffset(carbon, solar, 1/k * delivery/19)
+            sol.append((1/k) * min(total-accepted, 1))
+            accepted += min(total-accepted, 1)
 
-            sol.append((1/k) * delivery/19)
-            cost += val
+    assert sum(sol) == total, "solution does not add up to total"
 
+    cost = objectiveFunction(sol, vals, solarVals, beta)
     return sol, cost
 
 
@@ -316,11 +239,10 @@ cpdef tuple[list, float] oneMinOnline(list vals, list solarVals, int k, float L,
 cpdef tuple[list, float] owtOnline(list vals, list solarVals, float L, float U, float beta, float delivery):
     cdef int i
     cdef list sol
-    cdef float cost, carbon, alpha, accepted, val, solar
+    cdef float carbon, alpha, accepted, val, solar
 
     sol = []
     accepted = 0.0
-    cost = 0.0
     total = delivery/19
 
     # get value for alpha
@@ -333,15 +255,25 @@ cpdef tuple[list, float] owtOnline(list vals, list solarVals, float L, float U, 
             continue
         
         solar = solarVals[i]
+
+        remainder = (1 - accepted) * total
         
-        if i == len(vals) - 1: # must accept last price
+        if i == len(vals) - int(np.ceil(remainder)): # must accept last price(s)
+            amount = min(remainder, 1)
+            val = solarOffset(carbon, solar, amount)
+            sol.append(amount)
+            accepted += amount/total
+            j = 1
             remainder = (1 - accepted) * total
-            val = solarOffset(carbon, solar, remainder)
-            cost += val # hitting cost
-            cost += (beta * abs(remainder - sol[-1]))
-            cost += (beta * abs(0 - remainder)) # one last switching cost to turn off
-            sol.append(remainder)
-            accepted += remainder
+            while remainder > 0:
+                amount = min(remainder, 1)
+                carbon = vals[i+j]
+                solar = solarVals[i+j]
+                val = solarOffset(carbon, solar, amount)
+                sol.append(amount)
+                accepted += amount/total
+                j += 1
+                remainder = (1 - accepted) * total
             break
         
         # solve for threshold-defined amount
@@ -349,16 +281,12 @@ cpdef tuple[list, float] owtOnline(list vals, list solarVals, float L, float U, 
         if i != 0:
             previous = sol[-1]
         amount = owtHelper(carbon, solar, accepted, alpha, L, U, previous)
-        accepted += amount
-        amount = total * amount
+        amount = min(total * amount, 1)
+        accepted += amount/total
         val = solarOffset(carbon, solar, amount)
-        cost += val
-        cost += (beta * abs(amount - previous))
         sol.append(amount)
-        if accepted >= 1:
-            cost += (beta * abs(0 - amount)) # one last switching cost to turn off
-            continue
 
+    cost = objectiveFunction(sol, vals, solarVals, beta)
     return sol, cost
 
 # helper for one-way trading algorithm
@@ -367,28 +295,6 @@ cpdef float owtHelper(float carbon, float solar, float accepted, float alpha, fl
 
     target = minimize_scalar(owtMinimization, bounds = (0,1), args=(carbon, solar, alpha, U, L, accepted), method='bounded').x
     return max(target, 0.0) 
-
-    # minSoFar = np.inf
-
-    # for x in np.linspace(0, 1, 1000):
-    #     if x > 1 - accepted:
-    #         break
-    #     cur = owtMinimization(x, carbon, solar, alpha, U, L, accepted)
-    #     if cur < minSoFar:
-    #         minSoFar = cur
-    #         target = x
-    #     if x > 0 and cur > 10:
-    #         break
-        
-    # return target
-
-    # try:
-    #     target = minimize(owtMinimization, accepted, args=(val, alpha, U, L, previous, accepted), bounds = [(0,1)]).x[0]
-    #     # solve for the amount
-    # except:
-    #     print("something went wrong here w_j={}".format(accepted))
-    # else:
-    #     return target
 
 cpdef float owtThreshold(float w, float U, float L, float alpha):
     return U + (U / alpha - U) * np.exp( w / alpha )
@@ -410,8 +316,7 @@ cpdef tuple[list, float] roroOnline(list vals, list solarVals, float L, float U,
     cdef float cost, carbon, alpha, accepted, val, solar
 
     sol = []
-    accepted = 0
-    cost = 0
+    accepted = 0.0
     total = delivery/19
 
     # get value for alpha
@@ -425,39 +330,42 @@ cpdef tuple[list, float] roroOnline(list vals, list solarVals, float L, float U,
 
         solar = solarVals[i]
         
-        if i == len(vals) - 1: # must accept last price
+        remainder = (1 - accepted) * total
+        
+        if i == len(vals) - int(np.ceil(remainder)): # must accept last price(s)
+            amount = min(remainder, 1)
+            val = solarOffset(carbon, solar, amount)
+            sol.append(amount)
+            accepted += amount/total
+            j = 1
             remainder = (1 - accepted) * total
-            val = solarOffset(carbon, solar, remainder)
-            cost += val # hitting cost
-            cost += (beta * abs(remainder - sol[-1]))
-            cost += (beta * abs(0 - remainder)) # one last switching cost to turn off
-            sol.append(remainder)
-            accepted += remainder
+            while remainder > 0:
+                amount = min(remainder, 1)
+                carbon = vals[i+j]
+                solar = solarVals[i+j]
+                val = solarOffset(carbon, solar, amount)
+                sol.append(amount)
+                accepted += amount/total
+                j += 1
+                remainder = (1 - accepted) * total
             break
-                
+
         # solve for threshold-defined amount
         previous = 0
         if i != 0:
             previous = sol[-1]
         amount = roroHelper(carbon, solar, accepted, alpha, L, U, beta, previous, total)
-        accepted += amount
-        amount = total * amount
+        amount = min(total * amount, 1)
+        accepted += amount/total
         val = solarOffset(carbon, solar, amount)
-        cost += val
-        cost += (beta * abs(amount - previous))
         sol.append(amount)
-        if accepted >= 1:
-            cost += (beta * abs(0 - amount)) # one last switching cost to turn off
-            continue
 
+    cost = objectiveFunction(sol, vals, solarVals, beta)
     return sol, cost
 
 # helper for RORO algorithm
 cpdef float roroHelper(float carbon, float solar, float accepted, float alpha, float L, float U, float beta, float previous, float total):
     cdef float target
-
-    # target = minimize(roroMinimization, accepted, args=(val, alpha, U, L, beta, previous, accepted), bounds = [(0,1)]).x[0]
-    # return target
 
     try:
         target = minimize_scalar(roroMinimization, bounds = (0,1-accepted), args=(carbon, solar, alpha, U, L, beta, previous, accepted, total), method='bounded').x
@@ -481,6 +389,30 @@ cpdef tuple[list, float] convexComb(list vals, list solarVals, float beta, float
     sol = []
     for i in range(0, len(decision2)):
         sol.append(lamda * decision1[i] + (1-lamda) * decision2[i])
+    
+    cost = objectiveFunction(sol, vals, solarVals, beta)
+    return sol, cost
+
+
+cpdef tuple[list, float] carbonAgnostic(list vals, list solarVals, float beta, float delivery):
+    cdef list sol
+    cdef int index
+    cdef float amount, total
+    index = random.randint(0, len(vals)-1)
+    sol = [0 for _ in range(len(vals))]
+    total = delivery/19
+    if total > 1:
+        spots = int(np.ceil(total))
+        topk = random.sample(range(0, len(vals)), spots)
+        for k in topk:
+            if total>1:
+                sol[k] = 1
+                total -= 1
+            else:
+                sol[k] = total
+                total = 0
+    else:
+        sol[index] = total
     
     cost = objectiveFunction(sol, vals, solarVals, beta)
     return sol, cost
