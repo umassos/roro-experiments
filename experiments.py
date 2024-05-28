@@ -22,8 +22,6 @@ import functions2 as f
 
 import matplotlib.style as style
 style.use('tableau-colorblind10')
-
-# warnings.filterwarnings("ignore", category=ComplexWarning)
 warnings.filterwarnings("ignore")
 
 ############### EXPERIMENT SETUP ###############
@@ -37,27 +35,12 @@ beta = int(sys.argv[2])
 
 ###############  ##############  ###############
 
-# filename = ""
-# if trace == "NE":
-#     filename = "../carbon-traces/US-CENT-SWPP.csv"
-# elif trace == "US":
-#     filename = "../carbon-traces/US-NW-PACW.csv"
-# elif trace == "NZ":
-#     filename = "../carbon-traces/NZ-NZN.csv"
-# elif trace == "CA":
-#     filename = "../carbon-traces/CA-ON.csv"
-
-# load a carbon trace
+# load the carbon trace
 cf = pd.read_csv('ForecastsCISO.csv', parse_dates=True)
 # cf = pd.read_csv('ERCO_direct_emissions.csv', parse_dates=True)
 cf['datetime'] = pd.to_datetime(cf['UTC time'], utc=True)
 cf.drop(["UTC time"], axis=1, inplace=True)
 cf.set_index('datetime', inplace=True)
-
-# print the types in the dataframe
-# print(cf.index.dtype)
-# display(cf)
-# print(cf.loc['2019-08-20 09'])
 
 # load charging sessions
 data = pd.read_json('acndata_sessions.json')
@@ -88,11 +71,10 @@ df.drop(["connectionTime", "disconnectTime", "sessionID", "clusterID", "siteID",
 
 # only sufficiently long charging sessions
 df = df[df['duration'] >= 5]
-# df = df[df['kWhDelivered'] <= 19]
 
 ###############  ##############  ###############
 
-# run main experiment (just once for now)
+# run main experiment 
 
 opts = []
 onemins = []
@@ -108,11 +90,9 @@ cost_roros = []
 cost_roroadvices = []
 cost_carbonags = []
 
-j = 0
-
 # for each charging session, (i.e. row in the dataframe)
 for i, row in tqdm(enumerate(df.itertuples())):
-    #randomly skip most of the data
+    #randomly skip most of the data (comment this out for final plots)
     if random.random() < 0.9:
         continue
 
@@ -178,64 +158,19 @@ for i, row in tqdm(enumerate(df.itertuples())):
     # get the learning-augmented RORO solution
     roroAdvice, roroAdviceCost = f.convexComb(seq, solarSeq, beta, 0.5, predOpt.tolist(), roro)
 
-    # if delivery > 190:
-    #     print("the delivery is large here!  {} kWh".format(delivery))
-    #     print("Connection Hour: ", connect)
-    #     print("Disconnect Hour: ", disconnect)
-    #     print("kWh Delivered: ", delivery)
-    #     print("Sequence: ", seq)
-    #     print("Solar Sequence: ", solarSeq)
-    #     print("Optimal: ", opt[:len(seq)])
-    #     print("RORO: ", owt)
-    #     print("i: {}, OPT: {}, RORO: {}".format(i, optCost, roroCost))
-    #     print("")
-
-    # print("Connection Hour: ", connect)
-    # print("Disconnect Hour: ", disconnect)
-    # print("kWh Delivered: ", delivery)
-    # print("Sequence: ", seq)
-    # print("Solar Sequence: ", solarSeq)
-    # print("Optimal: ", opt[:len(seq)])
-    # print("RO-Advice: ", roroAdvice)
-    # print("i: {}, OPT: {}, RO-Advice: {}".format(i, optCost, roroAdviceCost))
-    # print("")
-    
-    # if roroothCost > (roroCost * (actualdelivery/delivery)):
-    #     print(seq)
-    #     print(actualdelivery/delivery)
-    #     print(roro)
-    #     print(rorooth)
-    #     print("RORO Cost: ", roroCost * (actualdelivery/delivery))
-    #     print("RORO other Cost: ", roroothCost)
-    # if owtothCost > (owtCost * (actualdelivery/delivery)):
-    #     print(seq)
-    #     print(actualdelivery/delivery)
-    #     print(owt)
-    #     print(owtoth)
-    #     print("OWT Cost: ", owtCost * (actualdelivery/delivery))
-    #     print("OWT other Cost: ", owtothCost)
-    # log_roro.append(roroothCost/(roroCost * (actualdelivery/delivery)))
-    # log_owt.append(owtothCost/(owtCost * (actualdelivery/delivery)))
-    # log_opt.append(optothCost * (delivery/19)/optCost)
-
     opts.append(opt)
     onemins.append(onemin)
     owts.append(owt)
     roros.append(roro)
     roroadvices.append(roroAdvice)
     carbonags.append(carbonAg)
-    # roroolds.append(roroold)
     cost_opts.append(optCost)
     cost_onemins.append(oneminCost)
     cost_owts.append(owtCost)
     cost_roros.append(roroCost)
     cost_roroadvices.append(roroAdviceCost)
     cost_carbonags.append(carbonAgCost)
-    # cost_roroolds.append(rorooldCost)
 
-    j += 1
-    # if j == 1000:
-    #     break
 
 ###############  ##############  ###############
 
@@ -287,7 +222,6 @@ plt.tight_layout()
 plt.xlim(1, 3.5)
 if DC_SYSTEM_SIZE > 0:
     plt.xlim(1, 6)
-# plt.title("CDF of Competitive Ratio, " + trace + " trace. Slack {} hrs & Switch Cost {}".format(T, switchCost))
 plt.savefig("plots/cdf_s{}_b{}.png".format(DC_SYSTEM_SIZE, beta), facecolor='w', transparent=False, bbox_inches='tight')
 plt.clf()
 
@@ -298,7 +232,6 @@ print("Simple Threshold: ", np.mean(crOnemin), np.percentile(crOnemin, 95))
 print("OWT: ", np.mean(crOWT), np.percentile(crOWT, 95))
 print("RORO: ", np.mean(crRORO), np.percentile(crRORO, 95))
 print("RO-Advice: ", np.mean(crROROAdvice), np.percentile(crROROAdvice, 95))
-# plt.show()
 
 
 

@@ -29,7 +29,6 @@ import functions2 as f
 
 # load a carbon trace
 cf = pd.read_csv('ForecastsCISO.csv', parse_dates=True)
-# cf = pd.read_csv('ERCO_direct_emissions.csv', parse_dates=True)
 cf['datetime'] = pd.to_datetime(cf['UTC time'], utc=True)
 cf.drop(["UTC time"], axis=1, inplace=True)
 cf.set_index('datetime', inplace=True)
@@ -78,7 +77,6 @@ df = df[df['duration'] >= 5]
 ###############  ##############  ###############
 
 def adv_experiment(df, beta, factor):
-
     opts = []
     roros = []
     advices = []
@@ -95,22 +93,15 @@ def adv_experiment(df, beta, factor):
     cost_roroadvices3 = []
     cost_roroadvices4 = []
 
-    j = 0
-    finished = 0
-
     # for each charging session, (i.e. row in the dataframe)
     for i, row in enumerate(df.itertuples()):
-        # randomly skip about 75% of the data
+        # randomly skip about 75% of the data (comment this out for final plots)
         if random.random() < 0.75:
             continue
-        # finished += 1
-        # if finished == 100:
-        #     break
 
         connect = row.connectionHour.tz_localize("UTC")
         disconnect = row.disconnectHour.tz_localize("UTC")
         delivery = row.kWhDelivered
-        # delivery = 19
 
         # compute L and U based on a month of data
         monthMinus = (connect - pd.Timedelta(days=20))
@@ -122,11 +113,6 @@ def adv_experiment(df, beta, factor):
         carbon = cf.loc[connect:disconnect]
         seq = carbon['carbon_intensity'].to_list() # get the ground truth carbon intensity for that location
 
-        # generate a "predicted sequence" (real sequence plus noise)
-        # predseq = f.addNoise(seq, noiseFactor=320.0)
-        ind = random.randint(0, len(cf)-len(seq))
-        altSeq = cf.loc[cf.index[ind]:cf.index[ind+len(seq)-1]]['carbon_intensity'].to_list()
-
         solar = gen.loc[connect:disconnect]
         solarSeq = solar['Solar Generation (kWh)'].to_list() # get the ground truth solar generation for that location
 
@@ -136,25 +122,17 @@ def adv_experiment(df, beta, factor):
         # get the optimal solution and the predicted optimal
         if DC_SYSTEM_SIZE == 0:
             opt, optCost = f.optimalSolutionLin(seq, beta, delivery)
+            # adversary is the solution that maximizes the objective function
             adversary, _ = s.maximizeSolution(seq, solarSeq, beta, delivery)
-            # adversaryCost = f.objectiveFunction(adversary, seq, solarSeq, beta)
         else:
             opt, optCost = f.optimalSolution(seq, solarSeq, beta, delivery)
-            # predOpt, _ = f.optimalSolution(predseq, solarSeq, beta, delivery)
             adversary, _ = s.maximizeSolution(seq, solarSeq, beta, delivery)
-            # adversaryCost = f.objectiveFunction(adversary, seq, solarSeq, beta)
         
         # pred Opt is a convex combination of the optimal and the adversary
         predOpt = f.combine(opt[:len(adversary)], adversary, factor)
         predOptCost = f.objectiveFunction(predOpt, seq, solarSeq, beta)
 
-        # if optCost < optothCost * (delivery/19):
-        #     print(seq)
-        #     print(delivery/19)
-        #     print(opt[:len(seq)])
-        #     print(optoth[:len(seq)])
-        #     print("OPT Cost: ", optCost)
-        #     print("OPT other Cost: ", optothCost * (delivery/19))
+        # ad hoc way of checking for convergence (this shouldn't ever happen)
         if optCost > 100000000:
             print("Error: no optimal solution found.")
             continue
@@ -162,18 +140,7 @@ def adv_experiment(df, beta, factor):
         # get the RORO solution
         roro, roroCost = f.roroOnline(seq, solarSeq, L, U, beta, delivery)
 
-        # if (roroCost < optCost) and DC_SYSTEM_SIZE > 0:
-        #     # try again
-        #     costs = [oneminCost, owtCost, roroCost]
-        #     bestSoFar = np.argmin(costs)
-        #     bestSolutionSoFar = [onemin, owt, roro][bestSoFar]
-        #     assert abs(f.objectiveFunction(bestSolutionSoFar, seq, solarSeq, beta) - costs[bestSoFar]) < 0.0001, "Best cost is wrong, {} != {}".format(f.objectiveFunction(bestSolutionSoFar, seq, solarSeq, beta), costs[bestSoFar])
-            
-        #     print("retrying optimal, current cost = {}, and best so far ({}) = {}".format(optCost, bestSoFar, costs[bestSoFar]))
-        #     opt, optCost = f.optimalSolution(seq, solarSeq, beta, delivery, seed=bestSolutionSoFar)
-        #     print("new cost = {}".format(optCost))
-
-        # get the learning-augmented RORO solution
+        # get the learning-augmented RORO solution for different lambdas
         roroAdvice, roroAdviceCost = f.convexComb(seq, solarSeq, beta, 0.8, predOpt, roro)
 
         roroAdvice2, roroAdviceCost2 = f.convexComb(seq, solarSeq, beta, 0.6, predOpt, roro)
@@ -182,24 +149,6 @@ def adv_experiment(df, beta, factor):
 
         roroAdvice4, roroAdviceCost4 = f.convexComb(seq, solarSeq, beta, 0.2, predOpt, roro)
         
-        # if roroothCost > (roroCost * (actualdelivery/delivery)):
-        #     print(seq)
-        #     print(actualdelivery/delivery)
-        #     print(roro)
-        #     print(rorooth)
-        #     print("RORO Cost: ", roroCost * (actualdelivery/delivery))
-        #     print("RORO other Cost: ", roroothCost)
-        # if owtothCost > (owtCost * (actualdelivery/delivery)):
-        #     print(seq)
-        #     print(actualdelivery/delivery)
-        #     print(owt)
-        #     print(owtoth)
-        #     print("OWT Cost: ", owtCost * (actualdelivery/delivery))
-        #     print("OWT other Cost: ", owtothCost)
-        # log_roro.append(roroothCost/(roroCost * (actualdelivery/delivery)))
-        # log_owt.append(owtothCost/(owtCost * (actualdelivery/delivery)))
-        # log_opt.append(optothCost * (delivery/19)/optCost)
-
         opts.append(opt)
         roros.append(roro)
         advices.append(predOpt)
@@ -215,15 +164,8 @@ def adv_experiment(df, beta, factor):
         cost_roroadvices3.append(roroAdviceCost3)
         cost_roroadvices4.append(roroAdviceCost4)
 
-        j += 1
-        # if j == 1000:
-        #     break
 
     ###############  ##############  ###############
-
-    # print(sum(log_roro)/len(log_roro))
-    # print(sum(log_owt)/len(log_owt))
-    # print(sum(log_opt)/len(log_opt))
 
     # compute competitive ratios
     cost_opts = np.array(cost_opts)
@@ -244,7 +186,6 @@ def adv_experiment(df, beta, factor):
     return crRORO, crAdvice, crROROAdvice, crROROAdvice2, crROROAdvice3, crROROAdvice4
 
 # plot heatmap down here
-
 algorithms = ["RORO", "ROAdvice [$\\epsilon \\sim 2.97$]", "ROAdvice [$\\epsilon \\sim 2.23$]", "ROAdvice [$\\epsilon \\sim 1.48$]", "ROAdvice [$\\epsilon \\sim 0.74$]", "black-box advice"]
 adversaryFactors = np.linspace(0, 1, 21)
 
@@ -276,14 +217,6 @@ for i, factor in enumerate(adversaryFactors):
     advice.append(crAdvice)
 
 
-# create numpy arrays from dictionaries
-# roro = np.array(roro)
-# roroAdvice = np.array(roroAdvice)
-# roroAdvice2 = np.array(roroAdvice2)
-# roroAdvice3 = np.array(roroAdvice3)
-# roroAdvice4 = np.array(roroAdvice4)
-# advice = np.array(advice)
-
 
 fig, ax = plt.subplots(figsize=(5,2), dpi=300)
 # make the matrix expand to fill the available area
@@ -295,12 +228,6 @@ ax.set_xlabel("adversarial factor ($\\zeta$)")
 ax.grid(which='major', color='w', linestyle='-', linewidth=0)
 ax.grid(which='minor', color='w', linestyle='-', linewidth=1)
 ax.tick_params(which='minor', bottom=False, left=False)
-
-#rainbow
-#Spectral_r
-
-# print all available colormaps
-print(plt.colormaps())
 
 # Show all ticks and label them with the respective list entries
 # labels should be printed to two decimal places
@@ -362,10 +289,6 @@ plt.savefig("advice_plots/grid_advice.png", facecolor='w', transparent=False, bb
 # # fig.legend(ncol=4, loc='lower center', bbox_to_anchor=(0.5, -0.3))
 # fig.tight_layout()
 # plt.show()
-
-# # add offsets based on solar generation
-
-# # adjust "how much" work needs to be done based on the energy demand of the EV
 
 
 

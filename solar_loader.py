@@ -18,7 +18,7 @@ class SolarData:
         # panels are rated according to peak solar hours (PSH), which corresponds to a solar irradiance of 1000 W/m^2
         # if we compute GTI, we can estimate the percentage of this peak output that a panel will produce (minus 14% system losses)
 
-        df = pd.read_csv('caltech_solar_radiation.csv', parse_dates=True)
+        df = pd.read_csv('solar_radiation.csv', parse_dates=True)
 
         df['datetime'] = pd.to_datetime(df[['Year', 'Month', 'Day', 'Hour', 'Minute']])
         df["datetime"] = df["datetime"].dt.floor("H")
