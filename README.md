@@ -17,15 +17,15 @@ Our experimental code has been written in Python and Cython.  We recommend using
 
 # Files and Descriptions
 
-1. **functions2.pyx**: Implements shared functions and algorithms in Cython
-2. **``experiments.py''**: Main Python script for experiments
-3. **advice_experiments.py**: Python script for advice experiments (varying adversarial factor $\xi$)
-4. **setup.py**: Setup script for Cython compilation
-5. **solar_loader.py**: Implements simple logic to convert solar radiation data to estimated PV electricity generation traces
-6. **supplemental.py**: Implements occasionally used shared functions
-7. **ForecastsCISO.csv**: Carbon intensity data and machine-learned forecasts for CAISO grid region given by [CarbonCast](https://github.com/carbonfirst/CarbonCast)
-8. **solar_radiation.csv**: Solar radiation data for the experiment location given by the [NSRDB](https://nsrdb.nrel.gov)
-9. **acndata_sessions.json**: EV charging session traces from [ACN-Data](https://ev.caltech.edu/dataset)
+1. ``functions2.pyx'': Implements shared functions and algorithms in Cython
+2. ``experiments.py'': Main Python script for experiments
+3. ``advice_experiments.py'': Python script for advice experiments (varying adversarial factor $\xi$)
+4. ``setup.py'': Setup script for Cython compilation
+5. ``solar_loader.py'': Implements simple logic to convert solar radiation data to estimated PV electricity generation traces
+6. ``supplemental.py'': Implements occasionally used shared functions
+7. ``ForecastsCISO.csv'': Carbon intensity data and machine-learned forecasts for CAISO grid region given by [CarbonCast](https://github.com/carbonfirst/CarbonCast)
+8. ``solar_radiation.csv'': Solar radiation data for the experiment location given by the [NSRDB](https://nsrdb.nrel.gov)
+9. ``acndata_sessions.json'': EV charging session traces from [ACN-Data](https://ev.caltech.edu/dataset)
 10. **plots/**: directory, contains CDF plots from main experiment  (experiments.py)
 11. **advice_plots/**: directory, contains heatmap plot from advice experiment (advice_experiments.py)
 
